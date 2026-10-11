@@ -248,6 +248,14 @@ int wmain(int argc, wchar_t **argv) {
   STARTUPINFOEXW si;
   ZeroMemory(&si, sizeof si);
   si.StartupInfo.cb = sizeof si;
+  // Without explicit (null) std handles, a console child can be handed
+  // the host's own stdio — here the frame pipe — and read keystrokes from
+  // it directly (CI showed 6 and 17 bytes of frames vanish). Null handles:
+  // the child talks only to the pseudoconsole.
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  si.StartupInfo.hStdInput = NULL;
+  si.StartupInfo.hStdOutput = NULL;
+  si.StartupInfo.hStdError = NULL;
   si.lpAttributeList = (LPPROC_THREAD_ATTRIBUTE_LIST)malloc(attr_size);
   if (!InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attr_size) ||
       !UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, pty, sizeof pty, NULL, NULL)) {
