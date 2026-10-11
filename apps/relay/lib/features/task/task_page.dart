@@ -9,6 +9,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/markdown.dart';
+import '../../ui/split.dart';
 import '../../ui/widgets.dart';
 import '../../ui/platform.dart';
 import 'diff_dialog.dart';
@@ -59,11 +60,14 @@ class TaskPage extends ConsumerWidget {
       ),
       Container(height: 1, color: c.separator),
       Expanded(
-        child: Row(children: [
-          SizedBox(width: 480, child: _Details(task: task)),
-          Container(width: 1, color: c.separator),
-          Expanded(child: RunPane(task: task)),
-        ]),
+        child: ResizableSplit(
+          id: 'task.details',
+          initial: 480,
+          min: 340,
+          keepOther: 380,
+          first: _Details(task: task),
+          second: RunPane(task: task),
+        ),
       ),
     ]);
   }
@@ -182,17 +186,9 @@ class _DetailsState extends ConsumerState<_Details> {
           const Hairline(),
           FieldRow('Assignee', Row(children: [
             Expanded(child: AssigneeLabel(t, size: 12)),
-            Builder(builder: (context) => IconBtn(LucideIcons.pencil, size: 12, onTap: () async {
+            Builder(builder: (context) => IconBtn(LucideIcons.pencil, size: 12, onTap: () {
               final box = context.findRenderObject() as RenderBox;
-              final choice = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
-                ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
-                for (final a in data.agents.where((a) => a.binaryPath != null)) ('agent:${a.id}', a.name, LucideIcons.bot),
-                ('me', 'Me', LucideIcons.user),
-              ]);
-              if (choice == null) return;
-              if (choice == 'auto') await _update({'assigneeKind': 'agent', 'assignee': 'auto'});
-              if (choice == 'me') await _update({'assigneeKind': 'person', 'assignee': ref.read(clientProvider).hello['userName'] ?? 'You'});
-              if (choice.startsWith('agent:')) await _update({'assigneeKind': 'agent', 'assignee': choice.substring(6)});
+              assignMenu(context, ref, t, box.localToGlobal(Offset(0, box.size.height)));
             })),
           ])),
           if (t.pipeline.isNotEmpty) ...[

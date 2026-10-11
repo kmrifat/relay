@@ -97,6 +97,56 @@ class Avatar extends StatelessWidget {
   }
 }
 
+/// Mouse and keyboard in one: hover, click, and Tab focus with Space or
+/// Enter to activate. [builder] gets whether it is hovered and whether it
+/// shows keyboard focus (only after keyboard use, not after a click).
+class Pressable extends StatefulWidget {
+  const Pressable({super.key, required this.builder, this.onTap, this.onDoubleTap, this.onSecondaryTapDown, this.focusNode, this.opaque = true});
+  final Widget Function(BuildContext context, bool hover, bool focus) builder;
+  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final GestureTapDownCallback? onSecondaryTapDown;
+  final FocusNode? focusNode;
+  final bool opaque;
+  @override
+  State<Pressable> createState() => _PressableState();
+}
+
+class _PressableState extends State<Pressable> {
+  bool _hover = false, _focus = false;
+  late final _actions = <Type, Action<Intent>>{
+    ActivateIntent: CallbackAction<ActivateIntent>(onInvoke: (_) {
+      widget.onTap?.call();
+      return null;
+    }),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onTap != null;
+    return FocusableActionDetector(
+      enabled: enabled,
+      focusNode: widget.focusNode,
+      mouseCursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      actions: _actions,
+      onShowHoverHighlight: (v) => setState(() => _hover = v),
+      onShowFocusHighlight: (v) => setState(() => _focus = v),
+      child: GestureDetector(
+        behavior: widget.opaque ? HitTestBehavior.opaque : HitTestBehavior.deferToChild,
+        onTap: widget.onTap,
+        onDoubleTap: widget.onDoubleTap,
+        onSecondaryTapDown: widget.onSecondaryTapDown,
+        child: widget.builder(context, _hover && enabled, _focus && enabled),
+      ),
+    );
+  }
+}
+
+/// The keyboard focus ring, drawn over a control without moving it.
+BoxDecoration? focusRing(BuildContext context, bool focus, double radius) => focus
+    ? BoxDecoration(border: Border.all(color: context.c.accentIcon, width: 2), borderRadius: BorderRadius.circular(radius))
+    : null;
+
 enum BtnKind { primary, secondary, plain, danger }
 
 class Btn extends StatefulWidget {
@@ -112,7 +162,6 @@ class Btn extends StatefulWidget {
 }
 
 class _BtnState extends State<Btn> {
-  bool _hover = false;
   @override
   Widget build(BuildContext context) {
     final c = context.c;
@@ -123,30 +172,26 @@ class _BtnState extends State<Btn> {
       BtnKind.plain => (Colors.transparent, c.accentIcon),
       BtnKind.danger => (c.control, c.danger),
     };
-    Widget b = MouseRegion(
-      cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: GestureDetector(
-        onTap: widget.onTap,
-        child: AnimatedOpacity(
-          duration: const Duration(milliseconds: 80),
-          opacity: enabled ? 1 : 0.45,
-          child: Container(
-            padding: EdgeInsets.symmetric(horizontal: widget.small ? 8 : 10, vertical: widget.small ? 3 : 5),
-            decoration: BoxDecoration(
-              color: _hover && enabled ? Color.lerp(bg, Colors.white, widget.kind == BtnKind.plain ? 0 : 0.08) : bg,
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              if (widget.icon != null) ...[Icon(widget.icon, size: widget.small ? 11 : 13, color: fg), if (widget.label.isNotEmpty) const SizedBox(width: 6)],
-              if (widget.label.isNotEmpty)
-                Flexible(
-                  child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis,
-                      style: context.t(widget.small ? 11 : 12, w: widget.kind == BtnKind.primary ? FontWeight.w600 : FontWeight.w400, color: fg)),
-                ),
-            ]),
+    Widget b = Pressable(
+      onTap: widget.onTap,
+      builder: (context, hover, focus) => AnimatedOpacity(
+        duration: const Duration(milliseconds: 80),
+        opacity: enabled ? 1 : 0.45,
+        child: Container(
+          padding: EdgeInsets.symmetric(horizontal: widget.small ? 8 : 10, vertical: widget.small ? 3 : 5),
+          decoration: BoxDecoration(
+            color: hover ? Color.lerp(bg, Colors.white, widget.kind == BtnKind.plain ? 0 : 0.08) : bg,
+            borderRadius: BorderRadius.circular(6),
           ),
+          foregroundDecoration: focusRing(context, focus, 6),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (widget.icon != null) ...[Icon(widget.icon, size: widget.small ? 11 : 13, color: fg), if (widget.label.isNotEmpty) const SizedBox(width: 6)],
+            if (widget.label.isNotEmpty)
+              Flexible(
+                child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: context.t(widget.small ? 11 : 12, w: widget.kind == BtnKind.primary ? FontWeight.w600 : FontWeight.w400, color: fg)),
+              ),
+          ]),
         ),
       ),
     );
@@ -164,12 +209,12 @@ class IconBtn extends StatelessWidget {
   final Color? color;
   @override
   Widget build(BuildContext context) {
-    Widget w = MouseRegion(
-      cursor: onTap == null ? SystemMouseCursors.basic : SystemMouseCursors.click,
-      child: GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Padding(padding: const EdgeInsets.all(4), child: Icon(icon, size: size, color: color ?? context.c.text2)),
+    Widget w = Pressable(
+      onTap: onTap,
+      builder: (context, hover, focus) => Container(
+        padding: const EdgeInsets.all(4),
+        foregroundDecoration: focusRing(context, focus, 5),
+        child: Icon(icon, size: size, color: color ?? context.c.text2),
       ),
     );
     if (tooltip != null) w = Tooltip(message: tooltip!, child: w);
@@ -192,15 +237,13 @@ class Segmented<T> extends StatelessWidget {
       decoration: BoxDecoration(color: c.toolbarField, borderRadius: BorderRadius.circular(6)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         for (final (v, label) in options)
-          MouseRegion(
-            cursor: SystemMouseCursors.click,
-            child: GestureDetector(
-              onTap: () => onChanged(v),
-              child: Container(
-                padding: EdgeInsets.symmetric(horizontal: small ? 8 : 10, vertical: small ? 2 : 3),
-                decoration: BoxDecoration(color: v == value ? c.segment : Colors.transparent, borderRadius: BorderRadius.circular(5)),
-                child: Text(label, style: context.t(small ? 11 : 12, w: v == value ? FontWeight.w600 : FontWeight.w400)),
-              ),
+          Pressable(
+            onTap: () => onChanged(v),
+            builder: (context, hover, focus) => Container(
+              padding: EdgeInsets.symmetric(horizontal: small ? 8 : 10, vertical: small ? 2 : 3),
+              decoration: BoxDecoration(color: v == value ? c.segment : Colors.transparent, borderRadius: BorderRadius.circular(5)),
+              foregroundDecoration: focusRing(context, focus, 5),
+              child: Text(label, style: context.t(small ? 11 : 12, w: v == value ? FontWeight.w600 : FontWeight.w400)),
             ),
           ),
       ]),
@@ -347,9 +390,10 @@ class StatusBar extends StatelessWidget {
   );
 }
 
-/// Hover highlight + click for list rows.
-class Hoverable extends StatefulWidget {
-  const Hoverable({super.key, required this.child, this.onTap, this.onDoubleTap, this.selected = false, this.radius = 6, this.selectedColor, this.onSecondaryTapDown});
+/// Hover highlight + click for list rows; Tab reaches it and Space or
+/// Enter activates it.
+class Hoverable extends StatelessWidget {
+  const Hoverable({super.key, required this.child, this.onTap, this.onDoubleTap, this.selected = false, this.radius = 6, this.selectedColor, this.onSecondaryTapDown, this.focusNode, this.focused = false});
   final Widget child;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
@@ -357,31 +401,26 @@ class Hoverable extends StatefulWidget {
   final double radius;
   final Color? selectedColor;
   final GestureTapDownCallback? onSecondaryTapDown;
-  @override
-  State<Hoverable> createState() => _HoverableState();
-}
+  final FocusNode? focusNode;
 
-class _HoverableState extends State<Hoverable> {
-  bool _hover = false;
+  /// Draw the focus ring regardless of Tab focus: the row a view's own
+  /// arrow keys have reached (board cards, list rows).
+  final bool focused;
   @override
-  Widget build(BuildContext context) => MouseRegion(
-    cursor: widget.onTap != null ? SystemMouseCursors.click : SystemMouseCursors.basic,
-    onEnter: (_) => setState(() => _hover = true),
-    onExit: (_) => setState(() => _hover = false),
-    child: GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: widget.onTap,
-      onDoubleTap: widget.onDoubleTap,
-      onSecondaryTapDown: widget.onSecondaryTapDown,
-      child: Container(
-        decoration: BoxDecoration(
-          color: widget.selected
-              ? (widget.selectedColor ?? context.c.accent)
-              : (_hover && widget.onTap != null ? context.c.text.withValues(alpha: 0.05) : Colors.transparent),
-          borderRadius: BorderRadius.circular(widget.radius),
-        ),
-        child: widget.child,
+  Widget build(BuildContext context) => Pressable(
+    onTap: onTap,
+    onDoubleTap: onDoubleTap,
+    onSecondaryTapDown: onSecondaryTapDown,
+    focusNode: focusNode,
+    builder: (context, hover, focus) => Container(
+      decoration: BoxDecoration(
+        color: selected
+            ? (selectedColor ?? context.c.accent)
+            : (hover ? context.c.text.withValues(alpha: 0.05) : Colors.transparent),
+        borderRadius: BorderRadius.circular(radius),
       ),
+      foregroundDecoration: focusRing(context, focus || focused, radius),
+      child: child,
     ),
   );
 }

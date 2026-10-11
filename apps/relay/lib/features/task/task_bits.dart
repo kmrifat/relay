@@ -155,17 +155,41 @@ Future<void> taskMenu(BuildContext context, WidgetRef ref, Task t, Offset at) as
     case 'queue':
       await client.call(M.tasksMove, {'id': t.id, 'status': TaskStatus.queued});
     case 'run':
-      try {
-        await client.call(M.runsStart, {'taskId': t.id});
-      } on RpcError catch (e) {
-        if (context.mounted) showError(context, e.message);
-      }
+      if (context.mounted) await runNow(context, ref, t);
     case 'backlog':
       await client.call(M.tasksMove, {'id': t.id, 'status': TaskStatus.backlog});
     case 'done':
       await client.call(M.tasksMove, {'id': t.id, 'status': TaskStatus.done});
     case 'delete':
       await client.call(M.tasksDelete, {'id': t.id});
+  }
+}
+
+/// Who does [t]: routing picks, a named agent, or me. Shared by the task
+/// page and the board's A key.
+Future<void> assignMenu(BuildContext context, WidgetRef ref, Task t, Offset at) async {
+  final data = ref.read(dataProvider);
+  final client = ref.read(clientProvider);
+  final choice = await showMenuAt<String>(context, at, [
+    ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
+    for (final a in data.agents.where((a) => a.binaryPath != null)) ('agent:${a.id}', a.name, LucideIcons.bot),
+    ('me', 'Me', LucideIcons.user),
+  ]);
+  if (choice == null) return;
+  final fields = switch (choice) {
+    'auto' => {'assigneeKind': 'agent', 'assignee': 'auto'},
+    'me' => {'assigneeKind': 'person', 'assignee': client.hello['userName'] ?? 'You'},
+    _ => {'assigneeKind': 'agent', 'assignee': choice.substring(6)},
+  };
+  await client.call(M.tasksUpdate, {'id': t.id, 'fields': fields});
+}
+
+/// Starts an agent on [t] now, saying why not if it can't.
+Future<void> runNow(BuildContext context, WidgetRef ref, Task t) async {
+  try {
+    await ref.read(clientProvider).call(M.runsStart, {'taskId': t.id});
+  } on RpcError catch (e) {
+    if (context.mounted) showError(context, e.message);
   }
 }
 

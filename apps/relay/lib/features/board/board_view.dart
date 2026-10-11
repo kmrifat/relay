@@ -1,47 +1,186 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
+import '../../app/commands.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
 import '../task/new_task_sheet.dart';
 import '../task/task_bits.dart';
 
-class BoardView extends ConsumerWidget {
+class BoardView extends ConsumerStatefulWidget {
   const BoardView({super.key, required this.projectId, this.repoFilter});
   final String projectId;
   final String? repoFilter;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BoardView> createState() => _BoardViewState();
+}
+
+/// The board, and its keys while it has focus: arrows or H/J/K/L move,
+/// Enter or Space opens, ⌥←/⌥→ moves the card to the next column, A
+/// assigns, R runs now, Q queues.
+class _BoardViewState extends ConsumerState<BoardView> {
+  final _focus = FocusNode(debugLabel: 'board');
+  final _selectedKey = GlobalKey();
+  String? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    focusContent.addListener(_takeFocus);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && focusIsIdle) _focus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    focusContent.removeListener(_takeFocus);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _takeFocus() {
+    if (mounted) _focus.requestFocus();
+  }
+
+  void _select(String id) {
+    setState(() => _selected = id);
+    // Scroll just enough to show it, whichever side it is off.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final policy in [ScrollPositionAlignmentPolicy.keepVisibleAtEnd, ScrollPositionAlignmentPolicy.keepVisibleAtStart]) {
+        final ctx = _selectedKey.currentContext;
+        if (ctx != null) Scrollable.ensureVisible(ctx, alignmentPolicy: policy);
+      }
+    });
+  }
+
+  KeyEventResult _key(KeyEvent e, List<List<Task>> cols) {
+    if (e is KeyUpEvent) return KeyEventResult.ignored;
+    final kb = HardwareKeyboard.instance;
+    if (kb.isMetaPressed || kb.isControlPressed) return KeyEventResult.ignored;
+    final k = e.logicalKey;
+    var ci = -1, ri = -1;
+    for (var i = 0; i < cols.length && ci < 0; i++) {
+      final j = cols[i].indexWhere((t) => t.id == _selected);
+      if (j >= 0) (ci, ri) = (i, j);
+    }
+    // Nothing chosen yet: any move key picks the first card.
+    if (ci < 0) {
+      final first = cols.indexWhere((c) => c.isNotEmpty);
+      if (first < 0) return KeyEventResult.ignored;
+      const moves = [LogicalKeyboardKey.arrowUp, LogicalKeyboardKey.arrowDown, LogicalKeyboardKey.arrowLeft, LogicalKeyboardKey.arrowRight,
+        LogicalKeyboardKey.keyH, LogicalKeyboardKey.keyJ, LogicalKeyboardKey.keyK, LogicalKeyboardKey.keyL];
+      if (!moves.contains(k)) return KeyEventResult.ignored;
+      _select(cols[first].first.id);
+      return KeyEventResult.handled;
+    }
+    final task = cols[ci][ri];
+    void column(int d) {
+      for (var i = ci + d; i >= 0 && i < cols.length; i += d) {
+        if (cols[i].isEmpty) continue;
+        _select(cols[i][ri.clamp(0, cols[i].length - 1)].id);
+        return;
+      }
+    }
+
+    void move(int d) {
+      final to = ci + d;
+      if (to < 0 || to >= TaskStatus.columns.length) return;
+      final maxPos = cols[to].fold<double>(0, (m, t) => t.position > m ? t.position : m);
+      ref.read(clientProvider).call(M.tasksMove, {'id': task.id, 'status': TaskStatus.columns[to], 'position': maxPos + 1});
+    }
+
+    Offset anchor() {
+      final box = _selectedKey.currentContext?.findRenderObject() as RenderBox?;
+      return box == null ? Offset.zero : box.localToGlobal(Offset(0, box.size.height));
+    }
+
+    final alt = kb.isAltPressed;
+    switch (k) {
+      case LogicalKeyboardKey.arrowLeft || LogicalKeyboardKey.keyH:
+        alt ? move(-1) : column(-1);
+      case LogicalKeyboardKey.arrowRight || LogicalKeyboardKey.keyL:
+        alt ? move(1) : column(1);
+      case LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.keyK:
+        _select(cols[ci][(ri - 1).clamp(0, cols[ci].length - 1)].id);
+      case LogicalKeyboardKey.arrowDown || LogicalKeyboardKey.keyJ:
+        _select(cols[ci][(ri + 1).clamp(0, cols[ci].length - 1)].id);
+      case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter || LogicalKeyboardKey.space:
+        openTask(ref, task.id);
+      case LogicalKeyboardKey.keyA:
+        assignMenu(context, ref, task, anchor());
+      case LogicalKeyboardKey.keyR:
+        runNow(context, ref, task);
+      case LogicalKeyboardKey.keyQ:
+        ref.read(clientProvider).call(M.tasksMove, {'id': task.id, 'status': TaskStatus.queued});
+      default:
+        return KeyEventResult.ignored;
+    }
+    return KeyEventResult.handled;
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final data = ref.watch(dataProvider);
-    final tasks = data.tasksOf(projectId).where((t) => repoFilter == null || t.repoIds.contains(repoFilter)).toList();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      child: LayoutBuilder(builder: (context, box) {
-        final w = ((box.maxWidth - 4 * 12) / 5).clamp(200.0, 320.0);
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            for (final s in TaskStatus.columns) ...[
-              SizedBox(width: w, height: box.maxHeight, child: _Column(status: s, projectId: projectId, tasks: tasks.where((t) => t.status == s).toList()..sort((a, b) => a.position.compareTo(b.position)))),
-              if (s != TaskStatus.done) const SizedBox(width: 12),
-            ],
-          ]),
-        );
-      }),
+    final tasks = data.tasksOf(widget.projectId).where((t) => widget.repoFilter == null || t.repoIds.contains(widget.repoFilter)).toList();
+    final cols = [
+      for (final s in TaskStatus.columns) tasks.where((t) => t.status == s).toList()..sort((a, b) => a.position.compareTo(b.position)),
+    ];
+    return Focus(
+      focusNode: _focus,
+      onKeyEvent: (_, e) => _key(e, cols),
+      child: ListenableBuilder(
+        listenable: _focus,
+        builder: (context, _) => Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+          child: LayoutBuilder(builder: (context, box) {
+            final w = ((box.maxWidth - 4 * 12) / 5).clamp(200.0, 320.0);
+            return SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                for (var i = 0; i < cols.length; i++) ...[
+                  SizedBox(
+                    width: w,
+                    height: box.maxHeight,
+                    child: _Column(
+                      status: TaskStatus.columns[i],
+                      projectId: widget.projectId,
+                      tasks: cols[i],
+                      selected: _selected,
+                      selectedKey: _selectedKey,
+                      showFocus: _focus.hasFocus,
+                      onSelect: (id) {
+                        _select(id);
+                        _focus.requestFocus();
+                      },
+                    ),
+                  ),
+                  if (i < cols.length - 1) const SizedBox(width: 12),
+                ],
+              ]),
+            );
+          }),
+        ),
+      ),
     );
   }
 }
 
 class _Column extends ConsumerWidget {
-  const _Column({required this.status, required this.tasks, required this.projectId});
+  const _Column({required this.status, required this.tasks, required this.projectId, this.selected, required this.selectedKey, this.showFocus = false, required this.onSelect});
   final String status;
   final List<Task> tasks;
   final String projectId;
+  final String? selected;
+  final GlobalKey selectedKey;
+  final bool showFocus;
+  final ValueChanged<String> onSelect;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -74,7 +213,14 @@ class _Column extends ConsumerWidget {
               padding: const EdgeInsets.only(bottom: 16),
               itemCount: tasks.length,
               separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (context, i) => _DraggableCard(task: tasks[i]),
+              itemBuilder: (context, i) {
+                final t = tasks[i];
+                final isSelected = t.id == selected;
+                return KeyedSubtree(
+                  key: isSelected ? selectedKey : ValueKey(t.id),
+                  child: _DraggableCard(task: t, focused: isSelected && showFocus, onSelect: () => onSelect(t.id)),
+                );
+              },
             ),
           ),
         ]),
@@ -84,22 +230,30 @@ class _Column extends ConsumerWidget {
 }
 
 class _DraggableCard extends StatelessWidget {
-  const _DraggableCard({required this.task});
+  const _DraggableCard({required this.task, this.focused = false, this.onSelect});
   final Task task;
+  final bool focused;
+  final VoidCallback? onSelect;
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, box) => Draggable<Task>(
       data: task,
       feedback: Material(color: Colors.transparent, child: SizedBox(width: box.maxWidth, child: Opacity(opacity: 0.9, child: TaskCard(task: task)))),
       childWhenDragging: Opacity(opacity: 0.35, child: TaskCard(task: task)),
-      child: TaskCard(task: task),
+      child: TaskCard(task: task, focused: focused, onSelect: onSelect),
     ),
   );
 }
 
 class TaskCard extends ConsumerWidget {
-  const TaskCard({super.key, required this.task});
+  const TaskCard({super.key, required this.task, this.focused = false, this.onSelect});
   final Task task;
+
+  /// The board's keyboard selection is on this card.
+  final bool focused;
+
+  /// Called on click before the task opens, so the board remembers it.
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -118,8 +272,12 @@ class TaskCard extends ConsumerWidget {
     final done = t.status == TaskStatus.done;
 
     return Hoverable(
-      onTap: () => openTask(ref, t.id),
+      onTap: () {
+        onSelect?.call();
+        openTask(ref, t.id);
+      },
       onSecondaryTapDown: (d) => taskMenu(context, ref, t, d.globalPosition),
+      focused: focused,
       radius: 8,
       child: Container(
         padding: const EdgeInsets.all(10),

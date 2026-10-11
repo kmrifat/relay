@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'app/menus.dart';
 import 'app/shell.dart';
 import 'app/theme.dart';
 import 'data/daemon_launcher.dart';
@@ -24,7 +25,7 @@ class RelayApp extends StatelessWidget {
     darkTheme: buildTheme(Brightness.dark),
     // The iPhone design is light (Liquid Glass); the Mac follows the system.
     themeMode: isMobile ? ThemeMode.light : ThemeMode.system,
-    home: const ConnectionGate(),
+    home: const RelayMenus(child: ConnectionGate()),
   );
 }
 

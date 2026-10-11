@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:relay_core/relay_core.dart';
@@ -21,10 +22,20 @@ bool inSmartList(AppPage p, Task t) => switch (p) {
 };
 
 class Sidebar extends ConsumerWidget {
-  const Sidebar({super.key});
+  const Sidebar({super.key, this.focusNode});
+
+  /// With focus (⌃Tab), ↑ and ↓ move between the places it lists.
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Every place in order, as it is built, for the arrow keys.
+    final places = <(bool, VoidCallback)>[];
+    _Row row({IconData? icon, Color? iconColor, Widget? leading, required String label, int? count, Widget? trailing, bool selected = false, bool subtle = false, required VoidCallback onTap}) {
+      places.add((selected, onTap));
+      return _Row(icon: icon, iconColor: iconColor, leading: leading, label: label, count: count, trailing: trailing, selected: selected, subtle: subtle, onTap: onTap);
+    }
+
     final c = context.c;
     final data = ref.watch(dataProvider);
     final nav = ref.watch(navProvider);
@@ -44,7 +55,7 @@ class Sidebar extends ConsumerWidget {
       (people[d.person.isEmpty ? d.name : d.person] ??= []).add(d);
     }
 
-    return Container(
+    return _ArrowNav(focusNode: focusNode, places: places, child: Container(
       color: c.sidebar,
       // macOS draws the traffic lights over the sidebar; elsewhere the
       // window has its own title bar.
@@ -78,18 +89,18 @@ class Sidebar extends ConsumerWidget {
         const SizedBox(height: 14),
         Expanded(
           child: ListView(padding: EdgeInsets.zero, children: [
-            _Row(icon: LucideIcons.inbox, iconColor: c.accentIcon, label: 'Inbox', count: count(AppPage.inbox),
+            row(icon: LucideIcons.inbox, iconColor: c.accentIcon, label: 'Inbox', count: count(AppPage.inbox),
                 selected: !onTask && nav.page == AppPage.inbox, onTap: () => n.page(AppPage.inbox)),
-            _Row(icon: LucideIcons.zap, iconColor: c.success, label: 'Running now', count: count(AppPage.running),
+            row(icon: LucideIcons.zap, iconColor: c.success, label: 'Running now', count: count(AppPage.running),
                 selected: !onTask && nav.page == AppPage.running, onTap: () => n.page(AppPage.running)),
-            _Row(icon: LucideIcons.gitPullRequest, iconColor: c.warning, label: 'Needs review', count: count(AppPage.review),
+            row(icon: LucideIcons.gitPullRequest, iconColor: c.warning, label: 'Needs review', count: count(AppPage.review),
                 selected: !onTask && nav.page == AppPage.review, onTap: () => n.page(AppPage.review)),
-            _Row(icon: LucideIcons.triangleAlert, iconColor: c.danger, label: 'Waiting on you', count: count(AppPage.waiting),
+            row(icon: LucideIcons.triangleAlert, iconColor: c.danger, label: 'Waiting on you', count: count(AppPage.waiting),
                 selected: !onTask && nav.page == AppPage.waiting, onTap: () => n.page(AppPage.waiting)),
             const SizedBox(height: 14),
             _Header('Projects', onAdd: () => showNewProjectDialog(context, ref)),
             for (final p in data.projects) ...[
-              _Row(
+              row(
                 leading: _Tile(p.key.substring(0, 1), hexColor(p.color)),
                 label: p.name,
                 count: data.tasksOf(p.id).where((t) => t.status != TaskStatus.done).length,
@@ -98,13 +109,13 @@ class Sidebar extends ConsumerWidget {
                 onTap: () => n.project(p.id),
               ),
               if (nav.page == AppPage.project && nav.projectId == p.id)
-                for (final r in data.reposOf(p.id)) _RepoRow(repo: r, selected: !onTask && nav.repoFilter == r.id),
+                for (final r in data.reposOf(p.id)) _repoRow(places, ref, r, !onTask && nav.repoFilter == r.id),
             ],
             const SizedBox(height: 14),
             _Header('Agents · your subscriptions', onTap: () => n.page(AppPage.agents)),
-            _Row(icon: LucideIcons.bot, iconColor: c.accentIcon, label: 'All agents', selected: !onTask && nav.page == AppPage.agents, onTap: () => n.page(AppPage.agents)),
+            row(icon: LucideIcons.bot, iconColor: c.accentIcon, label: 'All agents', selected: !onTask && nav.page == AppPage.agents, onTap: () => n.page(AppPage.agents)),
             for (final a in data.agents.where((a) => a.binaryPath != null))
-              _Row(
+              row(
                 leading: AgentTile(agent: a, size: 14),
                 label: a.name,
                 trailing: _agentTrailing(context, data, a),
@@ -117,7 +128,7 @@ class Sidebar extends ConsumerWidget {
                 Builder(builder: (context) {
                   final isOnline = devices.any((d) => online.contains(d.id));
                   final shared = devices.where((d) => d.shareAgents).expand((d) => d.agents).map((a) => '${a['name']}'.split(' ').first).toSet();
-                  return _Row(
+                  return row(
                     leading: Avatar(person, size: 14, color: isOnline ? null : c.text3),
                     label: person,
                     trailing: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -134,7 +145,7 @@ class Sidebar extends ConsumerWidget {
               const SizedBox(height: 14),
               _Header('Channels'),
               for (final ch in data.channels)
-                _Row(
+                row(
                   icon: LucideIcons.hash,
                   iconColor: c.text2,
                   label: ch.name,
@@ -145,7 +156,7 @@ class Sidebar extends ConsumerWidget {
             ],
           ]),
         ),
-        _Row(
+        row(
           icon: LucideIcons.settings,
           iconColor: c.text2,
           label: 'Settings',
@@ -154,7 +165,7 @@ class Sidebar extends ConsumerWidget {
           onTap: () => n.page(AppPage.settings),
         ),
       ]),
-    );
+    ));
   }
 
   /// Team sync at a glance: green synced, orange waiting, red failing.
@@ -181,6 +192,53 @@ class Sidebar extends ConsumerWidget {
       Dot(limited ? context.c.warning : (active > 0 ? context.c.success : context.c.text3)),
     ]);
   }
+}
+
+Widget _repoRow(List<(bool, VoidCallback)> places, WidgetRef ref, Repo r, bool selected) {
+  places.add((selected, () => ref.read(navProvider.notifier).repoFilter(selected ? null : r.id)));
+  return _RepoRow(repo: r, selected: selected);
+}
+
+/// ↑/↓ (or J/K) move to the previous or next place while the sidebar has
+/// focus; a line on its edge shows that it does.
+class _ArrowNav extends StatelessWidget {
+  const _ArrowNav({required this.focusNode, required this.places, required this.child});
+  final FocusNode? focusNode;
+  final List<(bool, VoidCallback)> places;
+  final Widget child;
+
+  void _step(int d) {
+    if (places.isEmpty) return;
+    final i = places.indexWhere((p) => p.$1);
+    places[(i + d).clamp(0, places.length - 1)].$2();
+  }
+
+  @override
+  Widget build(BuildContext context) => Focus(
+    focusNode: focusNode,
+    onKeyEvent: (node, e) {
+      if (e is KeyUpEvent) return KeyEventResult.ignored;
+      final k = e.logicalKey;
+      if (k == LogicalKeyboardKey.arrowDown || k == LogicalKeyboardKey.keyJ) {
+        _step(1);
+      } else if (k == LogicalKeyboardKey.arrowUp || k == LogicalKeyboardKey.keyK) {
+        _step(-1);
+      } else {
+        return KeyEventResult.ignored;
+      }
+      return KeyEventResult.handled;
+    },
+    child: focusNode == null
+        ? child
+        : ListenableBuilder(
+            listenable: focusNode!,
+            builder: (context, child) => Container(
+              foregroundDecoration: focusNode!.hasFocus ? BoxDecoration(border: Border(right: BorderSide(color: context.c.accentIcon, width: 2))) : null,
+              child: child,
+            ),
+            child: child,
+          ),
+  );
 }
 
 class _Tile extends StatelessWidget {

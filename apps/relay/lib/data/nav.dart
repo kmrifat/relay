@@ -41,17 +41,48 @@ class NavState {
 }
 
 class NavNotifier extends Notifier<NavState> {
+  final _back = <NavState>[];
+  final _forward = <NavState>[];
+
   @override
   NavState build() => const NavState();
 
+  /// Every move goes through here, so ⌘[ and ⌘] can walk it back.
+  void _go(NavState next) {
+    final now = state;
+    if (_same(now, next)) return;
+    _back.add(now);
+    if (_back.length > 50) _back.removeAt(0);
+    _forward.clear();
+    state = next;
+  }
+
+  static bool _same(NavState a, NavState b) =>
+      a.page == b.page && a.projectId == b.projectId && a.view == b.view && a.taskId == b.taskId && a.repoFilter == b.repoFilter && a.channelId == b.channelId;
+
+  bool get canGoBack => _back.isNotEmpty;
+  bool get canGoForward => _forward.isNotEmpty;
+
+  void back() {
+    if (_back.isEmpty) return;
+    _forward.add(state);
+    state = _back.removeLast();
+  }
+
+  void forward() {
+    if (_forward.isEmpty) return;
+    _back.add(state);
+    state = _forward.removeLast();
+  }
+
   void project(String id, {ProjectView? view}) =>
-      state = state.copyWith(page: AppPage.project, projectId: id, view: view, clearTask: true, clearRepo: state.projectId != id);
-  void view(ProjectView v) => state = state.copyWith(page: AppPage.project, view: v);
-  void page(AppPage p) => state = state.copyWith(page: p, clearTask: true);
-  void channel(String id) => state = state.copyWith(page: AppPage.channel, channelId: id, clearTask: true);
-  void openTask(String id) => state = state.copyWith(taskId: id);
-  void closeTask() => state = state.copyWith(clearTask: true);
-  void repoFilter(String? repoId) => state = repoId == null ? state.copyWith(clearRepo: true) : state.copyWith(repoFilter: repoId, view: ProjectView.board, page: AppPage.project);
+      _go(state.copyWith(page: AppPage.project, projectId: id, view: view, clearTask: true, clearRepo: state.projectId != id));
+  void view(ProjectView v) => _go(state.copyWith(page: AppPage.project, view: v, clearTask: true));
+  void page(AppPage p) => _go(state.copyWith(page: p, clearTask: true));
+  void channel(String id) => _go(state.copyWith(page: AppPage.channel, channelId: id, clearTask: true));
+  void openTask(String id) => _go(state.copyWith(taskId: id));
+  void closeTask() => _go(state.copyWith(clearTask: true));
+  void repoFilter(String? repoId) => _go(repoId == null ? state.copyWith(clearRepo: true) : state.copyWith(repoFilter: repoId, view: ProjectView.board, page: AppPage.project));
 }
 
 final navProvider = NotifierProvider<NavNotifier, NavState>(NavNotifier.new);

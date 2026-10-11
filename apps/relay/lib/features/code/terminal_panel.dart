@@ -7,9 +7,13 @@ import 'term_hub.dart';
 /// A real terminal (xterm.dart) showing a relayd PTY. The shell lives in
 /// [TermSession] (term_hub.dart), so this widget can come and go.
 class RelayTerminal extends StatelessWidget {
-  const RelayTerminal({super.key, required this.session, this.autofocus = true});
+  const RelayTerminal({super.key, required this.session, this.autofocus = false, this.focusNode});
   final TermSession session;
+
+  /// Off by default: the terminal takes focus when you ask for it (click,
+  /// new terminal, Take over), not whenever it is drawn.
   final bool autofocus;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -17,6 +21,7 @@ class RelayTerminal extends StatelessWidget {
     return TerminalView(
       session.terminal,
       autofocus: autofocus,
+      focusNode: focusNode,
       backgroundOpacity: 0,
       padding: const EdgeInsets.all(8),
       textStyle: const TerminalStyle(fontFamily: mono, fontSize: 12.5),
