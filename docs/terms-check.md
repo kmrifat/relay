@@ -53,7 +53,11 @@ Source: [Gemini CLI · Terms and privacy](https://geminicli.com/docs/resources/t
 
 Both use **the person's own API key**, billed per use under the provider's API terms. Automation is the normal case, so there is no consumer-plan question.
 
-## What this means for Relay (proposed, for the owner to decide)
+## What this means for Relay
+
+Decided 2026-10-11: **warn only** (point 2's first option). Settings → Team carries the warning; nothing is blocked.
+
+Proposed:
 
 1. **Keep** running the unmodified CLIs with the person's own sign-in. Never touch tokens. This is what Anthropic explicitly allows.
 2. **Shared agents:** recommend, or require, API-key or Team/Enterprise logins for agents a person shares. The app now warns about this in Settings → Team. A stricter option: share per agent, and refuse to share an agent signed in with a consumer plan.

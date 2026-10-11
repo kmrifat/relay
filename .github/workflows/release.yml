@@ -38,7 +38,7 @@ jobs:
         working-directory: apps/relay
         env:
           SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
-          RELEASE_BASE_URL: ${{ vars.RELEASE_BASE_URL }}
+          RELEASE_BASE_URL: ${{ vars.RELEASE_BASE_URL || format('https://github.com/{0}/releases/download', github.repository) }}
         run: |
           set -- ${{ steps.v.outputs.pair }}
           ../../tool/release/macos_appcast.sh Relay-macos.dmg "$1" "$2"

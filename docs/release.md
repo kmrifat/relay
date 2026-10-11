@@ -32,13 +32,20 @@ To do it locally with your own keychain identity, export the same variables and 
 
 ## 3. Sparkle updates (M9-03)
 
-Off until Relay has a public place for releases (open decision 4). This repo is private, so its GitHub release assets can't be fetched by the app. To turn updates on:
+Relay is open source (decision 4), so releases and `appcast.xml` live on GitHub. `SPARKLE_FEED_URL` already points at `…/releases/latest/download/appcast.xml`, and `RELEASE_BASE_URL` defaults to this repo's releases.
+
+Updates stay off until:
+
+- the repository is public, because the app can't fetch private release assets;
+- the update key is set (steps 1 and 3 below).
+
+To turn them on:
 
 1. Make an update key with Sparkle's `generate_keys` (Sparkle 2.9.6, the version pinned in `macos/Podfile`).
    - Store the private half, exported with `generate_keys -x`, as the secret `SPARKLE_ED_PRIVATE_KEY`.
    - Put the public half in `macos/Runner/Configs/AppInfo.xcconfig` as `SPARKLE_PUBLIC_ED_KEY`.
-2. Set `SPARKLE_FEED_URL` in the same file to where `appcast.xml` will be served, for example `https://<site>/relay/appcast.xml`.
-3. Set the repository variable `RELEASE_BASE_URL` to where the DMGs will be downloaded from (`<base>/v<version>/Relay-macos.dmg`).
+2. (Only when releases are hosted somewhere else.) Change `SPARKLE_FEED_URL`, and set the repository variable `RELEASE_BASE_URL` (`<base>/v<version>/Relay-macos.dmg`).
+3. Make the repository public.
 
 `macos_appcast.sh` writes `appcast.xml` with the DMG's EdDSA signature. Sparkle runs only when the person chooses **Check for Updates…** (Settings → This Mac). It checks the signature and the Developer ID team before it installs anything.
 

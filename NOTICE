@@ -1,0 +1,18 @@
+Relay (working name)
+Copyright 2026 binarycastle
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Bundled third-party material:
+- Inter (apps/relay/assets/fonts/Inter-*.ttf) — SIL Open Font License 1.1,
+  see apps/relay/assets/fonts/Inter-OFL.txt.
+- JetBrains Mono (apps/relay/assets/fonts/JetBrainsMono-*.ttf) — SIL Open Font
+  License 1.1, see apps/relay/assets/fonts/JetBrainsMono-OFL.txt.
+- Sparkle (macOS updates, via CocoaPods) — MIT-style licence, see
+  https://github.com/sparkle-project/Sparkle/blob/2.x/LICENSE.
+- Dart and Flutter packages listed in pubspec.lock, each under its own licence.
+
+Relay runs agent CLIs (Claude Code, Codex, Gemini CLI, OpenCode, Aider) that
+you install and sign in to yourself; they are not part of Relay and are
+governed by their providers' terms (docs/terms-check.md). Product names are
+used only to say which tools Relay can run.

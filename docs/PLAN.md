@@ -59,11 +59,11 @@ M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](a
 | Multi-repo | One branch name per task across all repos; worktree per touched repo; read-only links to the rest; `PROJECT.md` repo map |
 
 ### Still open (decide before the milestone in brackets)
-1. Product name ("Relay" is a placeholder). [M9]
+1. Product name ("Relay" is a placeholder). [M9] *2026-10-11: decide later; the placeholder stays for private testing.*
 2. Should Relay merge a change set in order itself, or only show the order? [M5]
 3. Should agent-to-agent messages be on by default, or allowed per task? [M4]
-4. Personal tool, open source, or a paid team product. This affects licensing and onboarding, not architecture. [M9]
-5. Terms of each AI provider for automated use of consumer plans through their CLIs. To check per provider before public release. [M9]
+4. ~~Personal tool, open source, or a paid team product.~~ **Decided 2026-10-11: open source, Apache-2.0** (LICENSE, NOTICE). Releases and the Sparkle feed on GitHub.
+5. Terms of each AI provider for automated use of consumer plans through their CLIs. Checked in [terms-check.md](terms-check.md). **Decided 2026-10-11: warn, don't block**: Settings → Team warns that personal plans are for your own use when sharing agents.
 
 ---
 
