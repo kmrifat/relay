@@ -1,7 +1,7 @@
 name: relay
 description: "Relay desktop and iPhone app (Flutter UI). Talks to relayd over a local socket."
 publish_to: 'none'
-version: 0.1.1+2
+version: 0.1.2+3
 resolution: workspace
 
 environment:
