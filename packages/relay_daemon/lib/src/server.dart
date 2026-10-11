@@ -11,6 +11,7 @@ import 'api.dart';
 import 'context.dart';
 import 'repo_inspect.dart';
 import 'supervisor.dart';
+import 'sync_service.dart';
 import 'terminals.dart';
 import 'workspaces.dart';
 
@@ -64,6 +65,7 @@ class RelayDaemon {
   late final Supervisor supervisor;
   late final Workspaces workspaces;
   late final Terminals terminals;
+  late final SyncService sync;
   late final Api api;
   ServerSocket? _server;
   final _clients = <_Client>{};
@@ -105,7 +107,9 @@ class RelayDaemon {
     workspaces = Workspaces(ctx);
     supervisor = Supervisor(ctx, workspaces);
     terminals = Terminals(ctx);
-    api = Api(ctx, supervisor, workspaces, terminals, startedAt: startedAt);
+    sync = SyncService(ctx);
+    supervisor.sync = sync;
+    api = Api(ctx, supervisor, workspaces, terminals, sync, startedAt: startedAt);
     ensureDemoAgent(ctx);
     if (detectOnStart) {
       try {
@@ -138,6 +142,7 @@ class RelayDaemon {
     }
 
     supervisor.startScheduler();
+    sync.start();
     _wireEvents();
   }
 
@@ -207,6 +212,7 @@ class RelayDaemon {
   Future<void> stop() async {
     if (_stopped.isCompleted) return;
     await supervisor.dispose();
+    await sync.dispose();
     await terminals.dispose();
     for (final c in _clients.toList()) {
       await c.peer.close();

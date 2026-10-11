@@ -9,17 +9,19 @@ import 'package:relay_protocol/relay_protocol.dart';
 import 'context.dart';
 import 'repo_inspect.dart';
 import 'supervisor.dart';
+import 'sync_service.dart';
 import 'terminals.dart';
 import 'workspaces.dart';
 
 /// Registers every request method on a client connection.
 class Api {
-  Api(this.ctx, this.supervisor, this.workspaces, this.terminals, {required this.startedAt});
+  Api(this.ctx, this.supervisor, this.workspaces, this.terminals, this.sync, {required this.startedAt});
 
   final DaemonContext ctx;
   final Supervisor supervisor;
   final Workspaces workspaces;
   final Terminals terminals;
+  final SyncService sync;
   final DateTime startedAt;
 
   Store get store => ctx.store;
@@ -82,16 +84,13 @@ class Api {
           'mergeStep': fields['mergeStep'] ?? 0,
           'dependsOn': fields['dependsOn'] ?? const [],
           'color': fields['color'] ?? _palette[(existing.length + 1) % _palette.length],
-          'paths': {if (info['topLevel'] != null) ctx.deviceId: info['topLevel']},
+          if (info['topLevel'] != null) Repo.pathField(ctx.deviceId): info['topLevel'],
         }).toJson();
       },
       M.reposUpdate: (p) {
         final fields = Map.of(_m(p, 'fields'));
         if (fields.containsKey('localPath')) {
-          final repo = ctx.repo(_s(p, 'id'));
-          final paths = Map<String, Object?>.of((repo.data['paths'] as Map?)?.cast<String, Object?>() ?? {});
-          paths[ctx.deviceId] = fields.remove('localPath');
-          fields['paths'] = paths;
+          fields[Repo.pathField(ctx.deviceId)] = fields.remove('localPath');
         }
         return store.patch<Repo>(Kind.repo, _s(p, 'id'), fields).toJson();
       },
@@ -105,8 +104,7 @@ class Api {
         final dest = params['dest'] as String? ??
             p.join(ctx.env['HOME'] ?? ctx.paths.home, 'code', ctx.project(repo.projectId).key.toLowerCase(), repo.name);
         await ctx.git.clone(url, dest);
-        final paths = {...(repo.data['paths'] as Map?)?.cast<String, Object?>() ?? {}, ctx.deviceId: dest};
-        return store.patch<Repo>(Kind.repo, repo.id, {'paths': paths}).toJson();
+        return store.patch<Repo>(Kind.repo, repo.id, {Repo.pathField(ctx.deviceId): dest}).toJson();
       },
 
       // ------------------------------------------------------------ tasks
@@ -123,6 +121,10 @@ class Api {
       },
       M.tasksCreate: (p) {
         final fields = Map.of(_m(p, 'fields'));
+        // A task runs on the device that queued it unless it names a
+        // teammate's device (their agents, with their consent).
+        fields['runOn'] ??= ctx.deviceId;
+        fields['createdOn'] = ctx.deviceId;
         final t = store.createTask(_s(p, 'projectId'), fields);
         if (t.status == TaskStatus.queued) supervisor.tick();
         return t.toJson();
@@ -235,8 +237,16 @@ class Api {
             {...a.toJson(), 'active': supervisor.activeRuns(a.id), 'today': usage[a.id] ?? const {}},
         ];
       },
-      M.agentsDetect: (_) async => detectAgents(ctx),
-      M.agentsUpdate: (p) => store.patch<AgentProfile>(Kind.agent, _s(p, 'id'), _m(p, 'fields')).toJson(),
+      M.agentsDetect: (_) async {
+        final found = await detectAgents(ctx);
+        sync.publishDevice();
+        return found;
+      },
+      M.agentsUpdate: (p) {
+        final a = store.patch<AgentProfile>(Kind.agent, _s(p, 'id'), _m(p, 'fields'));
+        sync.publishDevice();
+        return a.toJson();
+      },
       M.rulesList: (_) => _json(store.list<RoutingRule>(Kind.rule)..sort((a, b) => a.order.compareTo(b.order))),
       M.rulesSave: (p) {
         final fields = _m(p, 'fields');
@@ -253,6 +263,7 @@ class Api {
           store.setMeta('settings.${e.key}', '${e.value}');
         }
         supervisor.tick();
+        sync.settingsChanged();
         return ctx.allSettings();
       },
 
@@ -267,6 +278,17 @@ class Api {
       },
       M.changesPush: (p) async => workspaces.push(ctx.task(_s(p, 'taskId')), repoId: p['repoId'] as String?),
       M.workspacesList: (p) => workspaceList(),
+
+      // ------------------------------------------------------------ sync
+      M.syncStatus: (_) => sync.status(),
+      M.syncTest: (p) async => {'problems': await sync.test(SyncService.parseStorage(_m(p, 'storage')))},
+      M.syncCreateTeam: (p) async => sync.createTeam(_s(p, 'name'), SyncService.parseStorage(_m(p, 'storage'))),
+      M.syncInvite: (_) async => {'code': await sync.invite()},
+      M.syncJoin: (p) async => sync.join(_s(p, 'code')),
+      M.syncNow: (_) async => sync.syncNow(),
+      M.syncRevoke: (p) async => sync.revoke(_s(p, 'deviceId')),
+      M.syncLeave: (_) async => sync.leave(),
+      M.devicesList: (_) => _json(store.list<DeviceInfo>(Kind.device)),
 
       // ------------------------------------------------------------ git
       M.gitLog: (p) async {

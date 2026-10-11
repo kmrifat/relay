@@ -81,7 +81,7 @@ class DataNotifier extends Notifier<DataSnapshot> {
   /// Repos carry checkout paths per device; expose this Mac's as `localPath`.
   Map<String, Object?> _withLocal(String kind, Map<String, Object?> data) {
     if (kind != Kind.repo) return data;
-    final path = (data['paths'] as Map?)?[_device] as String?;
+    final path = data['path@$_device'] as String? ?? (data['paths'] as Map?)?[_device] as String?;
     return {...data, 'localPath': path};
   }
 

@@ -74,6 +74,16 @@ abstract final class M {
   static const termResize = 'term.resize';
   static const termClose = 'term.close';
   static const termTakeover = 'term.takeover';
+
+  static const syncStatus = 'sync.status';
+  static const syncTest = 'sync.test';
+  static const syncCreateTeam = 'sync.createTeam';
+  static const syncInvite = 'sync.invite';
+  static const syncJoin = 'sync.join';
+  static const syncNow = 'sync.now';
+  static const syncRevoke = 'sync.revoke';
+  static const syncLeave = 'sync.leave';
+  static const devicesList = 'devices.list';
 }
 
 /// Events (relayd → client), sent as JSON-RPC notifications.
@@ -98,6 +108,9 @@ abstract final class E {
 
   /// `{text, level}` something the user should see (toast).
   static const notice = 'notice';
+
+  /// sync.status's shape, after every sync pass.
+  static const syncState = 'sync.state';
 }
 
 /// Where relayd keeps its socket, database and state.
