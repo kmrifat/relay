@@ -39,6 +39,9 @@ class RpcPeer {
         .bind(input)
         .transform(const LineSplitter())
         .listen(_onLine, onDone: _onDone, onError: (_) => _onDone());
+    // A failed write (the other side went away: broken pipe) is reported on
+    // the sink's done future; left unheard it would be an uncaught error.
+    _output.done.then((_) => _onDone(), onError: (Object _) => _onDone());
   }
 
   final String name;
