@@ -1,0 +1,5 @@
+{"type":"system","subtype":"init","cwd":"/tmp/wt","session_id":"sess-123","model":"claude-sonnet","tools":["Read","Edit","Bash"]}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"I'll read the op log first."},{"type":"tool_use","id":"tu_1","name":"Read","input":{"file_path":"lib/sync/op_log.dart"}}],"usage":{"input_tokens":1200,"output_tokens":40}}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_1","content":"class OpLog {\n  final List<Op> ops;\n}","is_error":false}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu_2","name":"Bash","input":{"command":"npx wrangler r2 bucket create relay-sync-dev"}}]}}
+{"type":"control_request","request_id":"req_1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"npx wrangler r2 bucket create relay-sync-dev"}}}

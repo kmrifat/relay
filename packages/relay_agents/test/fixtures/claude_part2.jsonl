@@ -1,0 +1,3 @@
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu_2","content":[{"type":"text","text":"Created bucket relay-sync-dev"}]}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Done. The bucket exists and push writes with If-None-Match."}]}}
+{"type":"result","subtype":"success","is_error":false,"result":"Done.","session_id":"sess-123","total_cost_usd":0.0123,"usage":{"input_tokens":2000,"cache_read_input_tokens":500,"output_tokens":300}}
