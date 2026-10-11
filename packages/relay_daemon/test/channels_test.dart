@@ -148,8 +148,12 @@ void main() {
     }, timeout: const Duration(seconds: 30));
     expect(report['body'], 'SI-1 failed: Claude Code is signed out. Run `claude` in a terminal and type /login, then run the task again.');
 
-    final t = daemon.ctx.task(task['id'] as String);
-    expect(t.data['attention'], 'failed');
+    // The report goes out as the run ends; the task is marked after its
+    // workspace is refreshed.
+    final t = await waitFor(() async {
+      final t = daemon.ctx.task(task['id'] as String);
+      return t.data['attention'] == 'failed' ? t : null;
+    });
     expect(t.data['lastError'], startsWith('Claude Code is signed out.'));
     final run = (await c.list(M.runsList)).firstWhere((r) => r['taskId'] == task['id']);
     expect(run['rawError'], contains('OAuth session expired'));
