@@ -11,4 +11,11 @@ PRODUCT_NAME = Relay
 PRODUCT_BUNDLE_IDENTIFIER = com.binarycastle.relay
 
 // The copyright displayed in application information
-PRODUCT_COPYRIGHT = Copyright © 2026 com.binarycastle. All rights reserved.
+PRODUCT_COPYRIGHT = Copyright © 2026 binarycastle. All rights reserved.
+
+// In-place updates with Sparkle (M9-03, docs/release.md). Relay is open
+// source (decision 4, 2026-10-11): releases and the appcast live on GitHub.
+// The feed only works once the repo is public, and updates stay off until
+// the public half of the update key is set below.
+SPARKLE_FEED_URL = https:/$()/github.com/kmrifat/relay/releases/latest/download/appcast.xml
+SPARKLE_PUBLIC_ED_KEY =

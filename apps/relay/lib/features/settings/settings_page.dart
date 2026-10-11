@@ -5,6 +5,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import 'mac_section.dart';
 import 'team_section.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
@@ -71,6 +72,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 const SizedBox(height: 8),
                 const TeamSection(),
                 const SizedBox(height: 20),
+                const MacSection(),
                 Text('relayd', style: context.label),
                 const SizedBox(height: 8),
                 Box(

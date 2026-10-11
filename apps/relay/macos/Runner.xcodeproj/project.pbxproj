@@ -25,6 +25,9 @@
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
 		33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC10F02044A3C60003C045 /* AppDelegate.swift */; };
+		0B043989F015BD225A219985 /* AppUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = A911411F445BFC76D28AA063 /* AppUpdater.swift */; };
+		8C4BCF0CAAD8D47325219CEC /* StatusMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7AF33551346B6B4F4E88C6D1 /* StatusMenu.swift */; };
+		4B76544685673EF97E40DC4B /* LoginItem.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31E6D12A180E85832497A3DD /* LoginItem.swift */; };
 		33CC10F32044A3C60003C045 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F22044A3C60003C045 /* Assets.xcassets */; };
 		33CC10F62044A3C60003C045 /* MainMenu.xib in Resources */ = {isa = PBXBuildFile; fileRef = 33CC10F42044A3C60003C045 /* MainMenu.xib */; };
 		33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33CC11122044BFA00003C045 /* MainFlutterWindow.swift */; };
@@ -71,6 +74,9 @@
 		335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = GeneratedPluginRegistrant.swift; sourceTree = "<group>"; };
 		33CC10ED2044A3C60003C045 /* relay.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = relay.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		33CC10F02044A3C60003C045 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		A911411F445BFC76D28AA063 /* AppUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppUpdater.swift; sourceTree = "<group>"; };
+		7AF33551346B6B4F4E88C6D1 /* StatusMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatusMenu.swift; sourceTree = "<group>"; };
+		31E6D12A180E85832497A3DD /* LoginItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginItem.swift; sourceTree = "<group>"; };
 		33CC10F22044A3C60003C045 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = Runner/Assets.xcassets; sourceTree = "<group>"; };
 		33CC10F52044A3C60003C045 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.xib; name = Base; path = Base.lproj/MainMenu.xib; sourceTree = "<group>"; };
 		33CC10F72044A3C60003C045 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = Info.plist; path = Runner/Info.plist; sourceTree = "<group>"; };
@@ -176,6 +182,9 @@
 			isa = PBXGroup;
 			children = (
 				33CC10F02044A3C60003C045 /* AppDelegate.swift */,
+				A911411F445BFC76D28AA063 /* AppUpdater.swift */,
+				7AF33551346B6B4F4E88C6D1 /* StatusMenu.swift */,
+				31E6D12A180E85832497A3DD /* LoginItem.swift */,
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
@@ -401,7 +410,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# relayd + relay-pty (ADR-0001), signed like the app.\n\"$PROJECT_DIR/../../../tool/build_relay_helper.sh\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\" \"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n";
+			shellScript = "# relayd + relay-pty (ADR-0001), signed like the app.\n\"$PROJECT_DIR/../../../tool/build_relay_helper.sh\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers\" \"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\n# relayd at login (M9-02): the LaunchAgent SMAppService registers.\nmkdir -p \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents\"\ncp \"$PROJECT_DIR/Runner/com.binarycastle.relay.daemon.plist\" \"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchAgents/\"\n";
 		};
 		F59FF598B4D5BD7756DC49FC /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -459,6 +468,9 @@
 			files = (
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
+				0B043989F015BD225A219985 /* AppUpdater.swift in Sources */,
+				8C4BCF0CAAD8D47325219CEC /* StatusMenu.swift in Sources */,
+				4B76544685673EF97E40DC4B /* LoginItem.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

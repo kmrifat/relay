@@ -75,3 +75,7 @@ cd apps/relay && flutter test
 - pushing to a remote;
 - time limits and spend caps;
 - terminals, file access limits and the MCP server.
+
+## Licence
+
+Apache-2.0: see [LICENSE](LICENSE) and [NOTICE](NOTICE). Relay runs agent CLIs you install and sign in to yourself; their providers' terms apply ([docs/terms-check.md](docs/terms-check.md)).

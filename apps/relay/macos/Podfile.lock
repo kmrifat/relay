@@ -5,6 +5,7 @@ PODS:
   - mobile_scanner (7.0.0):
     - Flutter
     - FlutterMacOS
+  - Sparkle (2.9.6)
   - sqlite3 (3.52.0):
     - sqlite3/common (= 3.52.0)
   - sqlite3/common (3.52.0)
@@ -35,10 +36,12 @@ DEPENDENCIES:
   - file_selector_macos (from `Flutter/ephemeral/.symlinks/plugins/file_selector_macos/macos`)
   - FlutterMacOS (from `Flutter/ephemeral`)
   - mobile_scanner (from `Flutter/ephemeral/.symlinks/plugins/mobile_scanner/darwin`)
+  - Sparkle (= 2.9.6)
   - sqlite3_flutter_libs (from `Flutter/ephemeral/.symlinks/plugins/sqlite3_flutter_libs/darwin`)
 
 SPEC REPOS:
   trunk:
+    - Sparkle
     - sqlite3
 
 EXTERNAL SOURCES:
@@ -55,9 +58,10 @@ SPEC CHECKSUMS:
   file_selector_macos: 9e9e068e90ebee155097d00e89ae91edb2374db7
   FlutterMacOS: c232990155153907050900a2e175c7773903ba4e
   mobile_scanner: 9157936403f5a0644ca3779a38ff8404c5434a93
+  Sparkle: b8c9cf4ced217ffc708a1ca5f988a7ba877658db
   sqlite3: a51c07cf16e023d6c48abd5e5791a61a47354921
   sqlite3_flutter_libs: b3e120efe9a82017e5552a620f696589ed4f62ab
 
-PODFILE CHECKSUM: 1e95c36afbfd1cb6423ceca4de7a8e1b256fb6ac
+PODFILE CHECKSUM: 3f42a82084e6f6a4737f90882f8ffa5fb0ea90e2
 
 COCOAPODS: 1.16.2

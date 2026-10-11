@@ -343,6 +343,12 @@ class Store {
     return r.isEmpty ? null : r.first['value'] as String;
   }
 
+  /// Every meta key under [prefix], without the prefix.
+  Map<String, String> metaWithPrefix(String prefix) => {
+    for (final r in _db.select('SELECT key, value FROM meta WHERE key LIKE ?', ['${prefix.replaceAll('%', '')}%']))
+      (r['key'] as String).substring(prefix.length): r['value'] as String,
+  };
+
   void setMeta(String key, String value) => _db.execute(
     'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
     [key, value],
