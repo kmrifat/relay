@@ -316,6 +316,15 @@ class Store {
     return e;
   }
 
+  /// Adds events of a run on another device (live from a teammate). Ones
+  /// already here are skipped; new ones go out on [runEvents].
+  void importEvents(Iterable<RunEvent> events) {
+    for (final e in events) {
+      _db.execute('INSERT OR IGNORE INTO run_events (run_id, seq, json) VALUES (?, ?, ?)', [e.runId, e.seq, jsonEncode(e.toJson())]);
+      if (_db.updatedRows > 0) _events.add(e);
+    }
+  }
+
   List<RunEvent> events(String runId, {int after = 0, int? limit}) => _db
       .select(
         'SELECT json FROM run_events WHERE run_id = ? AND seq > ? ORDER BY seq ${limit != null ? 'LIMIT $limit' : ''}',

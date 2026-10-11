@@ -1,0 +1,13 @@
+{
+  "name": "relay-worker",
+  "private": true,
+  "type": "module",
+  "description": "Relay's team Worker: R2 access and live relay for one team (docs/format/worker.md).",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "serve": "node test/serve.mjs"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0"
+  }
+}

@@ -7,6 +7,7 @@ import 'folder_backend.dart';
 import 's3_backend.dart';
 import 'sigv4.dart';
 import 'storage.dart';
+import 'worker_backend.dart';
 
 /// Where the team's encrypted op log lives.
 class StorageSettings {
@@ -16,7 +17,8 @@ class StorageSettings {
       bucket = null,
       region = 'auto',
       accessKeyId = null,
-      secretAccessKey = null;
+      secretAccessKey = null,
+      setupToken = null;
 
   const StorageSettings.s3({
     required String this.endpoint,
@@ -25,7 +27,19 @@ class StorageSettings {
     required String this.accessKeyId,
     required String this.secretAccessKey,
   }) : kind = 's3',
-       folder = null;
+       folder = null,
+       setupToken = null;
+
+  /// The team's Worker (worker/src/index.js) in front of its R2 bucket.
+  /// [setupToken] is only set on the device that deployed it, until the
+  /// team is created; it never goes into invites.
+  StorageSettings.worker(String this.endpoint, {this.setupToken})
+    : kind = 'worker',
+      folder = null,
+      bucket = null,
+      region = 'auto',
+      accessKeyId = null,
+      secretAccessKey = null;
 
   /// Cloudflare R2: `https://<account>.r2.cloudflarestorage.com`, region auto.
   factory StorageSettings.r2({required String accountId, required String bucket, required String accessKeyId, required String secretAccessKey}) =>
@@ -36,17 +50,20 @@ class StorageSettings {
         secretAccessKey: secretAccessKey,
       );
 
-  factory StorageSettings.fromJson(Map<String, Object?> j) => j['kind'] == 'folder'
-      ? StorageSettings.folder(j['folder'] as String)
-      : StorageSettings.s3(
+  factory StorageSettings.fromJson(Map<String, Object?> j) => switch (j['kind']) {
+    'folder' => StorageSettings.folder(j['folder'] as String),
+    'worker' => StorageSettings.worker(j['endpoint'] as String),
+    _ => StorageSettings.s3(
           endpoint: j['endpoint'] as String,
           bucket: j['bucket'] as String,
           region: j['region'] as String? ?? 'auto',
           accessKeyId: j['accessKeyId'] as String,
           secretAccessKey: j['secretAccessKey'] as String,
-        );
+        ),
+  };
 
-  /// `folder` (a shared folder, e.g. iCloud Drive) or `s3` (R2, S3, MinIO).
+  /// `folder` (a shared folder, e.g. iCloud Drive), `s3` (R2, S3, MinIO)
+  /// or `worker` (the team's Worker; [endpoint] is its URL).
   final String kind;
   final String? folder;
   final String? endpoint;
@@ -54,21 +71,29 @@ class StorageSettings {
   final String region;
   final String? accessKeyId;
   final String? secretAccessKey;
+  final String? setupToken;
 
-  StorageBackend backend() => kind == 'folder'
-      ? FolderBackend(Directory(folder!))
-      : S3Backend(
-          config: S3Config(endpoint: Uri.parse(endpoint!), bucket: bucket!, region: region),
-          credentials: AwsCredentials(accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey!),
-        );
+  /// [token] gives the Worker's bearer token for `worker` storage.
+  StorageBackend backend({Future<String?> Function()? token}) => switch (kind) {
+    'folder' => FolderBackend(Directory(folder!)),
+    'worker' => WorkerBackend(Uri.parse(endpoint!), token: token ?? () async => null),
+    _ => S3Backend(
+      config: S3Config(endpoint: Uri.parse(endpoint!), bucket: bucket!, region: region),
+      credentials: AwsCredentials(accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey!),
+    ),
+  };
 
   /// What the UI may show: no secret.
   Map<String, Object?> describe() => kind == 'folder'
       ? {'kind': kind, 'folder': folder}
+      : kind == 'worker'
+      ? {'kind': kind, 'endpoint': endpoint}
       : {'kind': kind, 'endpoint': endpoint, 'bucket': bucket, 'region': region, 'accessKeyId': accessKeyId};
 
   Map<String, Object?> toJson() => kind == 'folder'
       ? {'kind': kind, 'folder': folder}
+      : kind == 'worker'
+      ? {'kind': kind, 'endpoint': endpoint}
       : {
           'kind': kind,
           'endpoint': endpoint,
@@ -115,6 +140,10 @@ class Secrets {
 
   int get currentEpoch => keyring.isEmpty ? 0 : keyring.keys.reduce((a, b) => a > b ? a : b);
   bool get inTeam => teamId != null && storage != null && keyring.isNotEmpty;
+
+  /// The Worker token for the newest key this device holds.
+  Future<String?> workerToken() async =>
+      teamId == null || keyring.isEmpty ? null : RelayCrypto.workerToken(keyring[currentEpoch]!, teamId!);
 
   void save(String path) {
     final f = File(path);

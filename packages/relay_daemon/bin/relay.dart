@@ -14,6 +14,11 @@ relay — Relay's daemon, MCP server and command line
   relay task add "Title" --project KEY [--brief TEXT] [--agent ID] [--repo NAME]... [--queue]
   relay tasks --project KEY    list tasks
   relay agents                 list agents (and detect CLIs)
+  relay worker deploy --account ID --team NAME
+                               deploy the team Worker to your Cloudflare account
+                               and create the team on it (token: CLOUDFLARE_API_TOKEN)
+  relay team create NAME --folder PATH | --worker URL --setup-token T
+  relay team status | invite | join CODE | sync | leave
   relay mcp --run RUN_ID       MCP server for an agent (stdio)
   relay demo-agent             the built-in demo agent (stream-json)
   relay version
@@ -96,6 +101,51 @@ Future<void> main(List<String> args) async {
           stdout.writeln('${(a['id'] as String).padRight(12)} ${a['binaryPath'] ?? '(not found)'}  ${a['version'] ?? ''}');
         }
         await c.close();
+      case 'worker':
+        if (rest.isEmpty || rest.first != 'deploy') throw const FormatException('relay worker deploy --account ID --team NAME');
+        final account = _opt(rest, '--account') ?? Platform.environment['CLOUDFLARE_ACCOUNT_ID'];
+        final team = _opt(rest, '--team');
+        if (account == null || team == null) throw const FormatException('relay worker deploy --account ID --team NAME');
+        final token = Platform.environment['CLOUDFLARE_API_TOKEN'] ?? _secretPrompt('Cloudflare API token (Workers Scripts: Edit, Workers R2 Storage: Edit): ');
+        final c = await RelayClient.connect(paths, client: 'cli');
+        final steps = c.events.where((e) => e.method == E.syncState && e.params['step'] != null).listen((e) => stdout.writeln('  ${e.params['step']}'));
+        final s = await c.map(M.syncCreateTeam, {'name': team, 'storage': {'kind': 'cloudflare', 'accountId': account, 'apiToken': token}});
+        await steps.cancel();
+        stdout.writeln('Team ${s['teamName']} is live at ${(s['storage'] as Map)['endpoint']}');
+        stdout.writeln('Invite teammates with `relay team invite`.');
+        await c.close();
+      case 'team':
+        final sub = rest.isEmpty ? 'status' : rest.first;
+        final c = await RelayClient.connect(paths, client: 'cli');
+        switch (sub) {
+          case 'create':
+            if (rest.length < 2) throw const FormatException('relay team create NAME --folder PATH | --worker URL --setup-token T');
+            final folder = _opt(rest, '--folder');
+            final worker = _opt(rest, '--worker');
+            final storage = folder != null
+                ? {'kind': 'folder', 'folder': Directory(folder).absolute.path}
+                : worker != null
+                ? {'kind': 'worker', 'url': worker, 'setupToken': _opt(rest, '--setup-token')}
+                : throw const FormatException('relay team create NAME --folder PATH | --worker URL --setup-token T');
+            _printTeam(await c.map(M.syncCreateTeam, {'name': rest[1], 'storage': storage}));
+          case 'invite':
+            stdout.writeln((await c.map(M.syncInvite))['code']);
+            stderr.writeln('Send this privately. It works once.');
+          case 'join':
+            if (rest.length < 2) throw const FormatException('relay team join CODE');
+            _printTeam(await c.map(M.syncJoin, {'code': rest[1]}));
+          case 'sync':
+            _printTeam(await c.map(M.syncNow));
+          case 'leave':
+            _printTeam(await c.map(M.syncLeave));
+          default:
+            _printTeam(await c.map(M.syncStatus));
+            for (final d in await c.list(M.devicesList)) {
+              if (d['revoked'] == true) continue;
+              stdout.writeln('  ${'${d['name']}'.padRight(28)} ${d['person'] ?? ''}${d['shareAgents'] == true ? ' · shares agents' : ''}');
+            }
+        }
+        await c.close();
       default:
         stderr.write(_usage);
         exitCode = 64;
@@ -131,6 +181,28 @@ Future<void> _daemon(RelayPaths paths) async {
   }
   await daemon.stopped;
   exit(0);
+}
+
+void _printTeam(Map<String, Object?> s) {
+  if (s['inTeam'] != true) {
+    stdout.writeln('Not in a team.');
+    return;
+  }
+  final storage = (s['storage'] as Map?) ?? {};
+  stdout.writeln('Team     ${s['teamName']} (key epoch ${s['epoch']})');
+  stdout.writeln('Storage  ${storage['kind']} ${storage['endpoint'] ?? storage['folder'] ?? ''}${storage['bucket'] != null ? ' / ${storage['bucket']}' : ''}');
+  stdout.writeln('Synced   ${s['lastSync'] ?? 'not yet'}${(s['pendingOps'] as num? ?? 0) > 0 ? ' · ${s['pendingOps']} waiting' : ''}');
+  if (s['error'] != null) stdout.writeln('Error    ${s['error']}');
+}
+
+String _secretPrompt(String label) {
+  stdout.write(label);
+  final echo = stdin.hasTerminal && stdin.echoMode;
+  if (stdin.hasTerminal) stdin.echoMode = false;
+  final v = stdin.readLineSync() ?? '';
+  if (stdin.hasTerminal) stdin.echoMode = echo;
+  stdout.writeln();
+  return v.trim();
 }
 
 String? _opt(List<String> args, String name) {

@@ -2,9 +2,11 @@
 library;
 
 export 'src/crypto.dart';
+export 'src/deploy.dart';
 export 'src/engine.dart';
 export 'src/folder_backend.dart';
 export 'src/s3_backend.dart';
 export 'src/settings.dart';
 export 'src/sigv4.dart';
 export 'src/storage.dart';
+export 'src/worker_backend.dart';

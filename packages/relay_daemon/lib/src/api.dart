@@ -203,9 +203,17 @@ class Api {
         supervisor.messageAgent(_s(p, 'taskId'), _s(p, 'from'), _s(p, 'to'), _s(p, 'text'));
         return true;
       },
-      M.runsEvents: (p) => [
-        for (final e in store.events(_s(p, 'runId'), after: (p['after'] as num?)?.toInt() ?? 0, limit: (p['limit'] as num?)?.toInt())) e.toJson(),
-      ],
+      M.runsEvents: (p) {
+        final runId = _s(p, 'runId');
+        final events = store.events(runId, after: (p['after'] as num?)?.toInt() ?? 0, limit: (p['limit'] as num?)?.toInt());
+        // A teammate's run: ask its device for what we haven't seen; it
+        // arrives as run.events like a local run's.
+        final run = store.get<Run>(Kind.run, runId);
+        if (run?.deviceId != null && run!.deviceId != ctx.deviceId && sync.live.connected) {
+          sync.live.want(runId, store.events(runId).lastOrNull?.seq ?? 0);
+        }
+        return [for (final e in events) e.toJson()];
+      },
       M.runsStart: (p) async {
         // Starting a run by hand takes the task to this device, unless a
         // teammate's device is running it right now.
@@ -292,8 +300,8 @@ class Api {
 
       // ------------------------------------------------------------ sync
       M.syncStatus: (_) => sync.status(),
-      M.syncTest: (p) async => {'problems': await sync.test(SyncService.parseStorage(_m(p, 'storage')))},
-      M.syncCreateTeam: (p) async => sync.createTeam(_s(p, 'name'), SyncService.parseStorage(_m(p, 'storage'))),
+      M.syncTest: (p) async => {'problems': await sync.testParams(_m(p, 'storage'))},
+      M.syncCreateTeam: (p) async => sync.createTeamFrom(_s(p, 'name'), _m(p, 'storage')),
       M.syncInvite: (_) async => {'code': await sync.invite()},
       M.syncJoin: (p) async => sync.join(_s(p, 'code')),
       M.syncNow: (_) async => sync.syncNow(),

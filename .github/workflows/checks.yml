@@ -19,8 +19,17 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      # The team Worker on Miniflare, for relay_sync's and relayd's Worker tests.
+      - run: npm ci --prefix worker
       - run: flutter pub get
       - run: tool/build_pty.sh
+      - name: Worker tests
+        run: npm test --prefix worker
       - name: Analyze and test each package
         run: |
           for p in packages/*; do

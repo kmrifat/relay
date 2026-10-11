@@ -14,7 +14,7 @@ class DecryptionFailed implements Exception {
 
 /// What an envelope holds. Part of the authenticated data, so an object of
 /// one type can't be passed off as another.
-enum EnvelopeType { ops(1), keywrap(2), invite(3); const EnvelopeType(this.code); final int code; }
+enum EnvelopeType { ops(1), keywrap(2), invite(3), live(4), file(5); const EnvelopeType(this.code); final int code; }
 
 /// Relay's encryption (docs/format/sync.md §2).
 ///
@@ -149,6 +149,23 @@ class RelayCrypto {
     final k = await Hkdf(hmac: Hmac.sha256(), outputLength: 32)
         .deriveKey(secretKey: SecretKey(secret), nonce: utf8.encode(teamId), info: utf8.encode('relay/v1 invite'));
     return Uint8List.fromList(await k.extractBytes());
+  }
+
+  // ------------------------------------------------------------ worker
+
+  /// The bearer token for the team's Worker in [teamKey]'s epoch. Derived
+  /// one way, so the Worker (which keeps only its SHA-256) learns nothing
+  /// about the team key.
+  static Future<String> workerToken(List<int> teamKey, String teamId) async {
+    final k = await Hkdf(hmac: Hmac.sha256(), outputLength: 32)
+        .deriveKey(secretKey: SecretKey(teamKey), nonce: utf8.encode(teamId), info: utf8.encode('relay/v1 worker'));
+    return b64(await k.extractBytes());
+  }
+
+  /// What the Worker stores for a token: hex SHA-256 of its text.
+  static Future<String> tokenHash(String token) async {
+    final h = await Sha256().hash(utf8.encode(token));
+    return h.bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 }
 
