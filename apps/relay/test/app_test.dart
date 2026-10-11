@@ -172,7 +172,7 @@ void main() {
     expect(find.text('Your agents, on your ${Desk.computer}'), findsOneWidget);
     await tester.tap(find.text('Continue'));
     await settleUntil(tester, find.text('Demo agent'));
-    expect(find.text('Agents on this Mac'), findsOneWidget);
+    expect(find.text('Agents on ${Desk.thisComputer}'), findsOneWidget);
     await tester.tap(find.text('Continue'));
     await tester.pump();
     expect(find.text('Pick a repository'), findsOneWidget);

@@ -75,11 +75,14 @@ static void append_arg(wchar_t **buf, size_t *len, size_t *cap, const wchar_t *a
   b[*len] = 0;
 }
 
+// A zero-byte write on the other end arrives as a successful zero-byte
+// read; only a failed read (broken pipe) means the input has closed.
 static int read_full(HANDLE h, void *buf, DWORD n) {
   BYTE *p = (BYTE *)buf;
   while (n > 0) {
     DWORD got = 0;
-    if (!ReadFile(h, p, n, &got, NULL) || got == 0) return 0;
+    if (!ReadFile(h, p, n, &got, NULL)) return 0;
+    if (got == 0) continue;
     p += got;
     n -= got;
   }
@@ -91,7 +94,8 @@ static DWORD WINAPI pump_output(LPVOID unused) {
   HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
   BYTE buf[16384];
   DWORD got, put;
-  while (ReadFile(out_read, buf, sizeof buf, &got, NULL) && got > 0) {
+  while (ReadFile(out_read, buf, sizeof buf, &got, NULL)) {
+    if (got == 0) continue;
     if (!WriteFile(out, buf, got, &put, NULL)) break;
   }
   return 0;
