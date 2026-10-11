@@ -43,6 +43,9 @@ class SyncService {
   StreamSubscription<EntityChange>? _changes;
 
   Store get store => ctx.store;
+
+  /// The sync engine while in a team (files go through its storage).
+  SyncEngine? get engine => _engine;
   bool get inTeam => secrets.inTeam;
 
   void start() {

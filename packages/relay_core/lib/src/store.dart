@@ -219,7 +219,8 @@ class Store {
         id,
         jsonEncode(data),
         data['projectId'] as String?,
-        data['taskId'] as String?,
+        // Messages are looked up by channel; they may also name a task.
+        (kind == Kind.message ? data['channelId'] : data['taskId']) as String?,
         data['deleted'] == true ? 1 : 0,
       ],
     );
@@ -232,7 +233,9 @@ class Store {
     return entityFrom(kind, (jsonDecode(row.first['json'] as String) as Map).cast()) as T;
   }
 
-  List<T> list<T extends Entity>(String kind, {String? projectId, String? taskId}) {
+  /// [channelId] filters messages (it shares the indexed task column).
+  List<T> list<T extends Entity>(String kind, {String? projectId, String? taskId, String? channelId}) {
+    taskId ??= channelId;
     final where = StringBuffer('kind = ? AND deleted = 0');
     final args = <Object?>[kind];
     if (projectId != null) {

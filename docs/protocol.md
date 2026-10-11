@@ -55,6 +55,12 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `term.takeover` | `{runId}` | pauses the agent and opens a shell in its workspace |
 | `sync.status / test / createTeam / invite / join / now / revoke / leave` | see [format/sync.md §6](format/sync.md#6-api-relayd) | team sync; status adds `live`, `online` (device ids in the Worker room) |
 | `devices.list` | — | team device records (name, person, agents, `shareAgents`, `lastSeen`) |
+| `channels.list` | — | channels with `unread` and `lastAt` (`#general` and one per project exist by default) |
+| `channels.create / update / read / pin` | `{name, projectId?, topic?}` / `{id, fields}` / `{channelId}` / `{channelId, messageId, on?}` | channel / true |
+| `messages.list` | `{channelId, limit?}` | messages, oldest first |
+| `messages.post` | `{channelId, body, replyTo?, files?: [path]}` | `{message, task?}`, or `{message, tasks}` when `@agent` mentions made tasks. `/task [@agent] title` makes a task on the channel's board |
+| `messages.react / delete` | `{messageId, emoji, on?}` / `{id}` (own only) | true |
+| `files.get` | `{messageId, fileId}` | `{path}`, fetched and decrypted from team storage the first time |
 
 ## Events (notifications from relayd)
 
@@ -66,6 +72,7 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `agent.state` | `{agents: [{id, active, slots, limitedUntil}]}` |
 | `notice` | `{text, level}` (info, warning, error, ask) |
 | `sync.state` | `sync.status`'s shape, after every sync pass, live-room change, or deploy `step` |
+| `notify` | `{kind, title, body, taskId?, channelId?, messageId?}`. `kind` is one of `ask` (permission or question on this Mac), `review` / `failed` (your task), `mention`, or `consent` (a teammate queued work on your unshared agents) |
 
 ## Run event types
 

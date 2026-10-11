@@ -8,6 +8,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 
 import 'context.dart';
 import 'repo_inspect.dart';
+import 'channels.dart';
 import 'supervisor.dart';
 import 'sync_service.dart';
 import 'terminals.dart';
@@ -15,13 +16,14 @@ import 'workspaces.dart';
 
 /// Registers every request method on a client connection.
 class Api {
-  Api(this.ctx, this.supervisor, this.workspaces, this.terminals, this.sync, {required this.startedAt});
+  Api(this.ctx, this.supervisor, this.workspaces, this.terminals, this.sync, this.channels, {required this.startedAt});
 
   final DaemonContext ctx;
   final Supervisor supervisor;
   final Workspaces workspaces;
   final Terminals terminals;
   final SyncService sync;
+  final Channels channels;
   final DateTime startedAt;
 
   Store get store => ctx.store;
@@ -308,6 +310,38 @@ class Api {
       M.syncRevoke: (p) async => sync.revoke(_s(p, 'deviceId')),
       M.syncLeave: (_) async => sync.leave(),
       M.devicesList: (_) => _json(store.list<DeviceInfo>(Kind.device)),
+
+      // ------------------------------------------------------------ channels
+      M.channelsList: (_) => channels.list(),
+      M.channelsCreate: (p) => channels.create(_s(p, 'name'), projectId: p['projectId'] as String?, topic: p['topic'] as String? ?? '').toJson(),
+      M.channelsUpdate: (p) {
+        final fields = Map.of(_m(p, 'fields'))..removeWhere((k, _) => !{'name', 'topic', 'projectId'}.contains(k));
+        return store.patch<Channel>(Kind.channel, _s(p, 'id'), fields).toJson();
+      },
+      M.channelsRead: (p) {
+        channels.markRead(_s(p, 'channelId'));
+        return true;
+      },
+      M.channelsPin: (p) {
+        channels.pin(_s(p, 'channelId'), _s(p, 'messageId'), p['on'] != false);
+        return true;
+      },
+      M.messagesList: (p) => _json(channels.messages(_s(p, 'channelId'), limit: (p['limit'] as num?)?.toInt() ?? 300)),
+      M.messagesPost: (p) async => channels.post(
+        _s(p, 'channelId'),
+        p['body'] as String? ?? '',
+        replyTo: p['replyTo'] as String?,
+        files: ((p['files'] as List?) ?? const []).cast<String>(),
+      ),
+      M.messagesReact: (p) {
+        channels.react(_s(p, 'messageId'), _s(p, 'emoji'), p['on'] != false);
+        return true;
+      },
+      M.messagesDelete: (p) {
+        channels.delete(_s(p, 'id'));
+        return true;
+      },
+      M.filesGet: (p) async => {'path': await channels.file(_s(p, 'messageId'), _s(p, 'fileId'))},
 
       // ------------------------------------------------------------ git
       M.gitLog: (p) async {

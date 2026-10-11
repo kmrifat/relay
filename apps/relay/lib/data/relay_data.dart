@@ -71,9 +71,22 @@ class DataSnapshot {
   /// Team devices (this Mac included), most recently seen first.
   List<DeviceInfo> get devices => all<DeviceInfo>(Kind.device).where((d) => !d.revoked).toList()
     ..sort((a, b) => (b.lastSeen ?? DateTime(2000)).compareTo(a.lastSeen ?? DateTime(2000)));
+  /// Devices that are online: in the Worker's room when there is one,
+  /// otherwise seen in the last 10 minutes.
+  Set<String> onlineDevices(Map<String, Object?> sync, String me) {
+    final live = ((sync['online'] as List?) ?? const []).cast<String>().toSet();
+    if (sync['live'] == true) return {...live, me};
+    final recent = DateTime.now().subtract(const Duration(minutes: 10));
+    return {me, for (final d in devices) if (d.lastSeen != null && d.lastSeen!.isAfter(recent)) d.id};
+  }
+
   List<RoutingRule> get rules => all<RoutingRule>(Kind.rule).toList()..sort((a, b) => a.order.compareTo(b.order));
   Project? projectOf(Task t) => get<Project>(Kind.project, t.projectId);
   String keyOf(Task t) => t.displayKey(projectOf(t)?.key ?? '?');
+  List<Channel> get channels => all<Channel>(Kind.channel).toList()
+    ..sort((a, b) => (a.id == Channel.general ? '' : a.name).compareTo(b.id == Channel.general ? '' : b.name));
+  List<Message> messagesOf(String channelId) => all<Message>(Kind.message).where((m) => m.channelId == channelId).toList()
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
   Run? activeRun(Task t) => get<Run>(Kind.run, t.data['activeRunId'] as String?);
 }
 
@@ -108,6 +121,7 @@ class DataNotifier extends Notifier<DataSnapshot> {
       Kind.rule: M.rulesList,
       Kind.run: M.runsList,
       Kind.device: M.devicesList,
+      Kind.channel: M.channelsList,
     };
     final next = <String, Map<String, Entity>>{for (final k in Kind.all) k: {}};
     for (final e in kinds.entries) {
@@ -120,6 +134,17 @@ class DataNotifier extends Notifier<DataSnapshot> {
         final j = (c as Map).cast<String, Object?>();
         next[Kind.change]![j['id'] as String] = ChangeEntry(j);
       }
+    }
+    state = DataSnapshot(next, state.rev + 1);
+  }
+
+  /// Loads a channel's recent messages (later ones arrive as events).
+  Future<void> loadMessages(String channelId) async {
+    final list = await ref.read(clientProvider).list(M.messagesList, {'channelId': channelId});
+    final next = Map.of(state.byKind);
+    final map = next[Kind.message] = Map.of(next[Kind.message] ?? {});
+    for (final j in list) {
+      map[j['id'] as String] = Message(j);
     }
     state = DataSnapshot(next, state.rev + 1);
   }
@@ -139,7 +164,7 @@ class DataNotifier extends Notifier<DataSnapshot> {
       } else {
         // agents.list adds live fields (active, today); keep them across updates.
         final prev = map[data['id']];
-        final merged = (kind == Kind.agent || kind == Kind.run) && prev != null ? {...prev.data, ...data} : data;
+        final merged = (kind == Kind.agent || kind == Kind.run || kind == Kind.channel) && prev != null ? {...prev.data, ...data} : data;
         map[data['id'] as String] = entityFrom(kind, _withLocal(kind, merged));
       }
     }
@@ -206,3 +231,43 @@ class SyncStatusNotifier extends Notifier<Map<String, Object?>> {
 }
 
 final syncStatusProvider = NotifierProvider<SyncStatusNotifier, Map<String, Object?>>(SyncStatusNotifier.new);
+
+/// Unread counts per channel (`channels.list`), refreshed when messages
+/// change and when a channel is read.
+class UnreadNotifier extends Notifier<Map<String, int>> {
+  Timer? _debounce;
+
+  @override
+  Map<String, int> build() {
+    final client = ref.watch(clientProvider);
+    final sub = client.events.where((e) => e.method == E.entity && ((e.params['items'] as List?) ?? const []).any((i) => (i as Map)['kind'] == Kind.message)).listen((_) {
+      _debounce?.cancel();
+      _debounce = Timer(const Duration(milliseconds: 300), refresh);
+    });
+    ref.onDispose(() {
+      sub.cancel();
+      _debounce?.cancel();
+    });
+    Future.microtask(refresh);
+    return const {};
+  }
+
+  Future<void> refresh() async {
+    final list = await ref.read(clientProvider).list(M.channelsList);
+    state = {for (final c in list) c['id'] as String: (c['unread'] as num?)?.toInt() ?? 0};
+  }
+
+  Future<void> markRead(String channelId) async {
+    if ((state[channelId] ?? 0) == 0) return;
+    state = {...state, channelId: 0};
+    await ref.read(clientProvider).call(M.channelsRead, {'channelId': channelId});
+  }
+}
+
+final unreadProvider = NotifierProvider<UnreadNotifier, Map<String, int>>(UnreadNotifier.new);
+
+/// `notify` events from relayd (system notifications).
+final notifyProvider = StreamProvider<Map<String, Object?>>((ref) {
+  final client = ref.watch(clientProvider);
+  return client.events.where((e) => e.method == E.notify).map((e) => e.params);
+});

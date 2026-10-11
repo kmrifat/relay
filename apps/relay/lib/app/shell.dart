@@ -7,8 +7,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:relay_core/relay_core.dart';
 
+import '../data/notifications.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
+import '../features/channel/channel_page.dart';
 import '../features/agents/fleet_page.dart';
 import '../features/project/project_dialogs.dart';
 import '../features/project/project_page.dart';
@@ -57,13 +59,52 @@ class _ShellState extends ConsumerState<Shell> {
             }
           case 'new-task':
             showNewTaskSheet(context, ref);
+          case 'channel':
+            final ch = data.channels.where((c) => c.name == value).firstOrNull;
+            if (ch != null) n.channel(ch.id);
         }
       }
     });
   }
 
+  int _badge = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    NativeNotifications.instance
+      ..init()
+      ..onOpen = (info) {
+        final n = ref.read(navProvider.notifier);
+        if (info['channelId'] is String) n.channel(info['channelId'] as String);
+        if (info['taskId'] is String) n.openTask(info['taskId'] as String);
+      };
+  }
+
   @override
   Widget build(BuildContext context) {
+    // relayd decides what is worth a notification; macOS shows it while
+    // Relay is in the background. In front, mentions elsewhere get a toast.
+    ref.listen(notifyProvider, (_, next) {
+      final n = next.value;
+      if (n == null) return;
+      NativeNotifications.instance.post(
+        id: '${n['kind']}-${n['taskId'] ?? n['messageId'] ?? DateTime.now().microsecondsSinceEpoch}',
+        title: '${n['title']}',
+        body: '${n['body']}',
+        info: {'taskId': ?n['taskId'], 'channelId': ?n['channelId']},
+      );
+      final nav = ref.read(navProvider);
+      if (n['kind'] == 'mention' && !(nav.page == AppPage.channel && nav.channelId == n['channelId'])) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          behavior: SnackBarBehavior.floating,
+          width: 460,
+          backgroundColor: context.c.box,
+          content: Text('${n['title']}: ${n['body']}', maxLines: 2, overflow: TextOverflow.ellipsis, style: context.t(12)),
+          action: SnackBarAction(label: 'Open', onPressed: () => ref.read(navProvider.notifier).channel('${n['channelId']}')),
+        ));
+      }
+    });
     ref.listen(noticesProvider, (_, next) {
       final n = next.value;
       if (n == null) return;
@@ -93,6 +134,12 @@ class _ShellState extends ConsumerState<Shell> {
       WidgetsBinding.instance.addPostFrameCallback((_) => ref.read(navProvider.notifier).project(data.projects.first.id));
     }
     _debugNav(data);
+    // Dock badge: what is waiting on you.
+    final waiting = data.tasksOf(null).where((t) => inSmartList(AppPage.waiting, t)).length;
+    if (waiting != _badge) {
+      _badge = waiting;
+      NativeNotifications.instance.badge(waiting);
+    }
 
     Widget content;
     if (nav.taskId != null && data.get<Task>(Kind.task, nav.taskId) != null) {
@@ -105,6 +152,7 @@ class _ShellState extends ConsumerState<Shell> {
         AppPage.inbox || AppPage.running || AppPage.review || AppPage.waiting => SmartListPage(page: nav.page),
         AppPage.agents => const FleetPage(),
         AppPage.settings => const SettingsPage(),
+        AppPage.channel => nav.channelId == null ? const SettingsPage() : ChannelPage(channelId: nav.channelId!),
       };
     }
 

@@ -13,6 +13,8 @@ relayd's store is a log of field patches (`Op {hlc, kind, id, patch}`), merged l
 | project, repo, task, comment, change | yes | the shared board |
 | run | yes | teammates see who is running what, where (`deviceId`). Run *events* (the transcript) aren't in the op log. With a Worker they stream live ([worker.md §4](worker.md#4-live-room)) |
 | device | yes | each device's name, person, agents and `shareAgents` consent |
+| channel, message | yes | team chat. Reactions are `react.<emoji>.<person>` fields and pins are `pin.<messageId>`, so concurrent edits merge. Project channels (`ch-<projectId>`), `#general` (`ch-general`) and each day's digest (`dg-<channel>-<date>`) have fixed ids, so two devices creating them get one |
+| files | storage only | attachments are sealed (envelope type `file`, 5) at `files/<id>.bin` and fetched on first open |
 | agent, rule | no | binaries, slots, caps and routing are per machine |
 
 Fields that differ per device carry the device in their name, so two devices never fight over them:
