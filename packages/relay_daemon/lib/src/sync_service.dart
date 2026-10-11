@@ -28,6 +28,10 @@ class SyncService {
 
   /// The team Worker's room; idle unless storage is a Worker.
   late final LiveLink live;
+
+  /// Per-agent live numbers for this device's record (set by relayd):
+  /// `{agentId: {active, costToday, limitedUntil}}`.
+  Map<String, Map<String, Object?>> Function()? agentStats;
   Timer? _poke;
 
   final DaemonContext ctx;
@@ -83,13 +87,25 @@ class SyncService {
   void publishDevice() {
     final agents = store.list<AgentProfile>(Kind.agent).where((a) => a.binaryPath != null && a.enabled).toList();
     final current = store.get<DeviceInfo>(Kind.device, ctx.deviceId);
+    final stats = agentStats?.call() ?? const {};
     final fields = <String, Object?>{
       'name': ctx.setting('deviceName', _defaultDeviceName()),
       'person': ctx.setting('userName', 'You'),
       'shareAgents': ctx.boolSetting('shareAgents', false),
+      'kind': ctx.setting('deviceKind', 'mac'),
+      'companionOf': ctx.store.meta('settings.companionOf'),
       'agents': [
         for (final a in agents)
-          {'id': a.id, 'name': a.name, 'color': a.color, 'letter': a.letter, 'slots': a.slots, 'version': a.version},
+          {
+            'id': a.id,
+            'name': a.name,
+            'color': a.color,
+            'letter': a.letter,
+            'slots': a.slots,
+            'version': a.version,
+            'dailyCapUsd': a.dailyCapUsd,
+            ...?stats[a.id],
+          },
       ],
     };
     final changed = current == null || fields.entries.any((e) => '${current.data[e.key]}' != '${e.value}');
@@ -150,6 +166,9 @@ class SyncService {
     'live': live.connected,
     'online': live.online.toList(),
     'liveIn': live.received,
+    'pairedMac': secrets.pairing?.mac,
+    'pairedMacName': secrets.pairing?.macName,
+    'phones': secrets.companions.length,
     'liveOut': live.sent,
   };
 
@@ -292,6 +311,48 @@ class SyncService {
       throw RpcError(RpcError.invalidParams, e.message);
     }
     await syncNow();
+    return status();
+  }
+
+  // ------------------------------------------------------------ phones
+
+  /// A code (shown as a QR) that pairs a phone with this Mac: a one-time
+  /// team invite plus a key only the two of them hold, which signs the
+  /// phone's commands (answer an agent, steer a run).
+  Future<Map<String, Object?>> pairPhone() async {
+    if (!inTeam) throw RpcError(RpcError.invalidParams, 'Set up team sync first (Settings → Team). The phone reaches this Mac through it.');
+    if (secrets.storage!.kind == 'folder') throw RpcError(RpcError.invalidParams, 'A phone can\'t reach a shared folder. Use a Cloudflare Worker for team sync.');
+    final invite = await _e.createInvite();
+    final pairing = Pairing(
+      id: newId(),
+      key: RelayCrypto.randomBytes(32),
+      mac: ctx.deviceId,
+      macName: ctx.setting('deviceName', _defaultDeviceName()),
+      person: ctx.setting('userName', 'You'),
+    );
+    secrets.companions[pairing.id] = pairing.key;
+    secrets.save(secretsPath);
+    return {'code': pairing.encode(invite), 'macName': pairing.macName};
+  }
+
+  /// On a phone: joins the team from a Mac's pairing code and becomes
+  /// that Mac's companion.
+  Future<Map<String, Object?>> pairWith(String code) async {
+    final (Pairing pairing, String invite) parsed;
+    try {
+      parsed = Pairing.parse(code);
+    } on FormatException catch (e) {
+      throw RpcError(RpcError.invalidParams, e.message);
+    }
+    final (pairing, invite) = parsed;
+    store.setMeta('settings.userName', pairing.person);
+    store.setMeta('settings.companionOf', pairing.mac);
+    store.setMeta('settings.deviceKind', 'phone');
+    if (store.meta('settings.deviceName') == null) store.setMeta('settings.deviceName', '${pairing.person.split(' ').first}\'s iPhone');
+    await join(invite);
+    secrets.pairing = pairing;
+    secrets.save(secretsPath);
+    publishDevice();
     return status();
   }
 

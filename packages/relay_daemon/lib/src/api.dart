@@ -36,7 +36,22 @@ class Api {
   List<Map<String, Object?>> _json(Iterable<Entity> es) => [for (final e in es) e.toJson()];
 
   void register(RpcPeer peer) {
-    final methods = <String, RpcHandler>{
+    for (final e in handlers.entries) {
+      peer.registerMethod(e.key, e.value);
+    }
+  }
+
+  /// Runs [method] as if a local client called it (commands from this
+  /// device's paired phone arrive this way).
+  Future<Object?> invoke(String method, Map<String, Object?> params) async {
+    final h = handlers[method] ?? (throw RpcError(RpcError.methodNotFound, 'No method $method'));
+    return h(params);
+  }
+
+  late final Map<String, RpcHandler> handlers = _methods();
+
+  Map<String, RpcHandler> _methods() {
+    return <String, RpcHandler>{
       M.status: (_) => status(),
 
       // ------------------------------------------------------------ projects
@@ -309,6 +324,8 @@ class Api {
       M.syncNow: (_) async => sync.syncNow(),
       M.syncRevoke: (p) async => sync.revoke(_s(p, 'deviceId')),
       M.syncLeave: (_) async => sync.leave(),
+      M.syncPairPhone: (_) async => sync.pairPhone(),
+      M.syncPair: (p) async => sync.pairWith(_s(p, 'code')),
       M.devicesList: (_) => _json(store.list<DeviceInfo>(Kind.device)),
 
       // ------------------------------------------------------------ channels
@@ -417,9 +434,6 @@ class Api {
         return terminals.open(cwd: cwd, runId: run.id, cols: (p['cols'] as num?)?.toInt() ?? 100, rows: (p['rows'] as num?)?.toInt() ?? 30);
       },
     };
-    for (final e in methods.entries) {
-      peer.registerMethod(e.key, e.value);
-    }
   }
 
   Map<String, Object?> status() => {

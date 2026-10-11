@@ -70,6 +70,7 @@ class RelayDaemon {
   late final SyncService sync;
   late final Channels channels;
   late final Notifier notifier;
+  Timer? _statsTimer;
   late final Api api;
   ServerSocket? _server;
   final _clients = <_Client>{};
@@ -116,6 +117,14 @@ class RelayDaemon {
     channels = Channels(ctx, sync);
     notifier = Notifier(ctx);
     api = Api(ctx, supervisor, workspaces, terminals, sync, channels, startedAt: startedAt);
+    sync.live.onCommand = api.invoke;
+    sync.agentStats = () {
+      final usage = supervisor.usageToday();
+      return {
+        for (final a in store.list<AgentProfile>(Kind.agent))
+          a.id: {'active': supervisor.activeRuns(a.id), 'costToday': usage[a.id]?['costUsd'] ?? 0, 'limitedUntil': a.data['limitedUntil']},
+      };
+    };
     ensureDemoAgent(ctx);
     if (detectOnStart) {
       try {
@@ -150,6 +159,14 @@ class RelayDaemon {
     supervisor.startScheduler();
     sync.start();
     channels.start();
+    // Agent numbers on this device's record (the phone's Agents screen),
+    // at most every 5 s.
+    ctx.broadcasts.where((b) => b.$1 == E.agentState).listen((_) {
+      _statsTimer ??= Timer(const Duration(seconds: 5), () {
+        _statsTimer = null;
+        sync.publishDevice();
+      });
+    });
     notifier.start();
     _wireEvents();
   }

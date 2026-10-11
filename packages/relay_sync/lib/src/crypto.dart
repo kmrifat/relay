@@ -162,6 +162,13 @@ class RelayCrypto {
     return b64(await k.extractBytes());
   }
 
+  /// HMAC-SHA256 of [text] with a phone's pairing key, base64url. Proves a
+  /// command comes from the paired phone, not just any team member.
+  static Future<String> pairMac(List<int> key, String text) async {
+    final mac = await Hmac.sha256().calculateMac(utf8.encode(text), secretKey: SecretKey(key));
+    return b64(mac.bytes);
+  }
+
   /// What the Worker stores for a token: hex SHA-256 of its text.
   static Future<String> tokenHash(String token) async {
     final h = await Sha256().hash(utf8.encode(token));
