@@ -126,4 +126,32 @@ void main() {
     await c.call(M.channelsRead, {'channelId': chId});
     expect((await c.list(M.channelsList)).firstWhere((x) => x['id'] == chId)['unread'], 0);
   });
+
+  test('a signed-out agent says how to sign back in', () async {
+    // Stands in for a Claude Code whose login expired: reads the prompt,
+    // complains on stderr, exits 1.
+    final fake = File(p.join(tmp.path, 'claude-signed-out'))
+      ..writeAsStringSync('#!/bin/sh\nread -r line\necho "Failed to authenticate: OAuth session expired and could not be refreshed" >&2\nexit 1\n');
+    await Process.run('chmod', ['+x', fake.path]);
+    daemon.ctx.store.create<AgentProfile>(Kind.agent, {'id': 'claude-code', 'adapter': 'claude-code', 'name': 'Claude Code', 'binaryPath': fake.path, 'enabled': true, 'slots': 1});
+    final project = await c.map(M.projectsCreate, {'name': 'Sign in', 'key': 'si'});
+    final checkout = await repo(p.join(tmp.path, 'code'), 'signin', {'README.md': 'x\n'});
+    await c.map(M.reposAdd, {'projectId': project['id'], 'path': checkout});
+    final chId = Channel.idFor(project['id'] as String);
+    await waitFor(() async => (await c.list(M.channelsList)).where((x) => x['id'] == chId).firstOrNull);
+
+    final asked = await c.map(M.messagesPost, {'channelId': chId, 'body': '@claude-code you there?'});
+    final task = (asked['tasks'] as List).single as Map;
+    final report = await waitFor(() async {
+      final ms = await c.list(M.messagesList, {'channelId': chId});
+      return ms.where((m) => m['taskId'] == task['id'] && (m['body'] as String).contains('failed')).firstOrNull;
+    }, timeout: const Duration(seconds: 30));
+    expect(report['body'], 'SI-1 failed: Claude Code is signed out. Run `claude` in a terminal and type /login, then run the task again.');
+
+    final t = daemon.ctx.task(task['id'] as String);
+    expect(t.data['attention'], 'failed');
+    expect(t.data['lastError'], startsWith('Claude Code is signed out.'));
+    final run = (await c.list(M.runsList)).firstWhere((r) => r['taskId'] == task['id']);
+    expect(run['rawError'], contains('OAuth session expired'));
+  }, skip: Platform.isWindows ? 'the stand-in agent is a shell script' : false);
 }

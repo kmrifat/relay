@@ -417,9 +417,15 @@ class _TaskCard extends ConsumerWidget {
             Text(data.keyOf(t), style: context.t(11, color: c.text2, family: mono)),
             const SizedBox(width: 8),
             const Spacer(),
-            Icon(statusIcon(t.status), size: 12, color: statusColor(context, t.status)),
-            const SizedBox(width: 4),
-            Text(TaskStatus.label(t.status), style: context.t(11, color: statusColor(context, t.status))),
+            // "Failed" or "Asks you" says more than the column it sits in.
+            ...switch (attentionBadge(context, t)) {
+              final badge? => [badge],
+              null => [
+                Icon(statusIcon(t.status), size: 12, color: statusColor(context, t.status)),
+                const SizedBox(width: 4),
+                Text(TaskStatus.label(t.status), style: context.t(11, color: statusColor(context, t.status))),
+              ],
+            },
           ]),
           const SizedBox(height: 4),
           Text(t.title, style: context.t(13, w: FontWeight.w600)),

@@ -429,13 +429,23 @@ class Supervisor {
 
   Future<void> _finish(String runId, String status, {String? summary, String? error, bool requeue = false}) async {
     final run = ctx.run(runId);
+    // A signed-out CLI fails every task the same way: say how to fix it,
+    // and keep what the CLI said on the run.
+    final profile = ctx.agent(run.agentId);
+    final hint = error == null ? null : signInHint(profile?.adapter ?? run.agentId, profile?.name ?? run.agentId, error);
+    final rawError = hint == null ? null : error;
+    if (hint != null) {
+      error = hint;
+      ctx.notice(hint, level: 'warning');
+    }
     ctx.store.patch<Run>(Kind.run, runId, {
       'status': status,
       'endedAt': DateTime.now().toUtc().toIso8601String(),
       'summary': ?summary,
       'error': ?error,
+      'rawError': ?rawError,
     });
-    ctx.store.appendEvent(runId, RunEventType.status, {'status': status, 'detail': error ?? summary ?? ''});
+    ctx.store.appendEvent(runId, RunEventType.status, {'status': status, 'detail': rawError != null ? '$error\n$rawError' : error ?? summary ?? ''});
     final task = ctx.store.get<Task>(Kind.task, run.taskId);
     _broadcastAgentState();
     if (task == null) return;

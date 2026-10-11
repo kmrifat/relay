@@ -273,7 +273,12 @@ class _TaskBits extends StatelessWidget {
       Row(children: [
         Text('${view.data.keyOf(t)} · ${run == null ? 'new task' : view.agent(run.agentId, deviceId: run.deviceId).name}', style: mt(13, color: MC.text2, family: 'Menlo')),
         const SizedBox(width: 16),
-        Text(TaskStatus.label(t.status), style: mt(13, w: FontWeight.w600, color: MC.accent)),
+        switch (t.data['attention']) {
+          'failed' => Text('Failed', style: mt(13, w: FontWeight.w600, color: MC.red)),
+          'permission' => Text('Needs your OK', style: mt(13, w: FontWeight.w600, color: MC.orange)),
+          'question' => Text('Asks you', style: mt(13, w: FontWeight.w600, color: MC.orange)),
+          _ => Text(TaskStatus.label(t.status), style: mt(13, w: FontWeight.w600, color: MC.accent)),
+        },
       ]),
       const SizedBox(height: 4),
       Text(t.title, style: mt(16, w: FontWeight.w600)),
