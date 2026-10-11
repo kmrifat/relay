@@ -12,6 +12,9 @@ import 'context.dart';
 class Notifier {
   Notifier(this.ctx);
   final DaemonContext ctx;
+
+  /// Also called for each notification (relayd: push to paired phones).
+  Future<void> Function(Map<String, Object?> note)? onNotify;
   Store get store => ctx.store;
 
   StreamSubscription<EntityChange>? _sub;
@@ -39,8 +42,10 @@ class Notifier {
     _seen[t.id] = now;
     if (before == now) return;
     final attention = t.data['attention'] as String?;
-    final runsHere = (t.str('runOn') ?? ctx.deviceId) == ctx.deviceId;
-    final mine = (t.str('createdOn') ?? t.str('runOn') ?? ctx.deviceId) == ctx.deviceId;
+    // A phone and its Mac are one person: the Mac's tasks are the phone's,
+    // and work queued from the phone is the Mac's.
+    final runsHere = _isMe(t.str('runOn') ?? ctx.deviceId);
+    final mine = _isMe(t.str('createdOn') ?? t.str('runOn') ?? ctx.deviceId);
     final key = _key(t);
     if (attention == 'permission' && runsHere) {
       _notify('ask', '$key needs your OK', _agentLine(t, 'wants to run a command'), taskId: t.id);
@@ -55,8 +60,14 @@ class Notifier {
     }
   }
 
+  bool _isMe(String deviceId) {
+    if (deviceId == ctx.deviceId) return true;
+    if (deviceId == store.meta('settings.companionOf')) return true;
+    return store.get<DeviceInfo>(Kind.device, deviceId)?.data['companionOf'] == ctx.deviceId;
+  }
+
   void _onMessage(Message m) {
-    if (m.deviceId == ctx.deviceId && m.authorKind == 'person') return; // my own
+    if (m.authorKind == 'person' && m.deviceId != null && _isMe(m.deviceId!)) return; // my own
     if (_sent.contains('m:${m.id}')) return;
     final me = ctx.setting('userName', '').trim().toLowerCase();
     if (me.isEmpty || me == 'you') return;
@@ -81,6 +92,16 @@ class Notifier {
   }
 
   void _notify(String kind, String title, String body, {String? taskId, String? channelId, String? messageId}) {
+    final note = <String, Object?>{
+      'kind': kind,
+      'title': title,
+      'body': body.length > 240 ? '${body.substring(0, 239)}…' : body,
+      'taskId': ?taskId,
+      'channelId': ?channelId,
+      'messageId': ?messageId,
+    };
+    final hook = onNotify;
+    if (hook != null) unawaited(hook(note).catchError((_) {}));
     ctx.broadcast(E.notify, {
       'kind': kind,
       'title': title,

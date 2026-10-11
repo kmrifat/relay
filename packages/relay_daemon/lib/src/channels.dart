@@ -13,10 +13,13 @@ import 'sync_service.dart';
 /// tasks, agents reporting back, the morning digest, and files sealed in
 /// the team's storage. Channels and messages sync like any other record.
 class Channels {
-  Channels(this.ctx, this.sync);
+  Channels(this.ctx, this.sync, {this.postsDigests = true});
 
   final DaemonContext ctx;
   final SyncService sync;
+
+  /// Phones leave the digest to the Macs.
+  final bool postsDigests;
   Store get store => ctx.store;
 
   StreamSubscription<EntityChange>? _changes;
@@ -32,7 +35,7 @@ class Channels {
       if (e is Project && !c.remote) scheduleMicrotask(() => _ensureProjectChannel(e));
       if (e is Run) scheduleMicrotask(() => _maybeReport(e));
     });
-    _digestTimer = Timer.periodic(const Duration(minutes: 1), (_) => postDigests());
+    if (postsDigests) _digestTimer = Timer.periodic(const Duration(minutes: 1), (_) => postDigests());
   }
 
   Future<void> dispose() async {
@@ -176,8 +179,11 @@ class Channels {
     final h = handle.toLowerCase();
     final local = store.list<AgentProfile>(Kind.agent).where((a) => a.binaryPath != null && a.enabled && _matches(a.id, a.name, h)).firstOrNull;
     if (local != null) return (id: local.id, name: local.name, deviceId: ctx.deviceId);
-    for (final d in store.list<DeviceInfo>(Kind.device)) {
-      if (d.id == ctx.deviceId || d.revoked || !d.shareAgents) continue;
+    // On a phone, "my agents" are its Mac's, shared or not.
+    final mac = store.meta('settings.companionOf');
+    final devices = store.list<DeviceInfo>(Kind.device)..sort((a, b) => (a.id == mac ? 0 : 1).compareTo(b.id == mac ? 0 : 1));
+    for (final d in devices) {
+      if (d.id == ctx.deviceId || d.revoked || (!d.shareAgents && d.id != mac)) continue;
       for (final a in d.agents) {
         if (_matches('${a['id']}', '${a['name']}', h)) return (id: '${a['id']}', name: '${a['name']}', deviceId: d.id);
       }
@@ -313,10 +319,20 @@ class Channels {
 
   static String _stripMentions(String s) => s.replaceAll(RegExp(r'@[A-Za-z0-9_.-]+'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
 
+  /// A task title from a message: its sentences without the @mentions,
+  /// minus short acknowledgements ("Go ahead.", "Thanks!").
+  ///   "The board drag feels laggy. @demo can you profile it?"
+  ///     → "The board drag feels laggy. Can you profile it?"
+  ///   "Go ahead. @demo when TM-5 lands, check the README."
+  ///     → "When TM-5 lands, check the README."
   static String _titleFrom(String text) {
-    final t = _stripMentions(text);
-    final first = t.split(RegExp(r'(?<=[.?!])\s')).first;
-    return first.isEmpty ? 'Request from the channel' : first;
+    final sentences = [
+      for (final s in text.split(RegExp(r'(?<=[.?!])\s+')))
+        if (_stripMentions(s) case final t when t.isNotEmpty) t[0].toUpperCase() + t.substring(1),
+    ];
+    final kept = sentences.length > 1 ? sentences.where((s) => s.split(' ').length > 3).toList() : sentences;
+    final t = (kept.isEmpty ? sentences : kept).join(' ');
+    return t.isEmpty ? 'Request from the channel' : t;
   }
 
   static String _clip(String s, int n) => s.length > n ? '${s.substring(0, n - 1)}…' : s;

@@ -2,7 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:relay_daemon/relay_daemon.dart' show MobileHost;
 import 'package:relay_protocol/relay_protocol.dart';
+
+/// The phone UI (iOS, or `RELAY_MOBILE=1` on a Mac for development).
+bool get isMobile => Platform.isIOS || Platform.environment['RELAY_MOBILE'] == '1';
 
 /// Finds relayd, starts it if needed, and connects.
 ///
@@ -31,7 +36,18 @@ class DaemonLauncher {
   }
 
   /// Connects, starting relayd first when nothing answers.
+  /// On a phone, Relay runs in-process (no daemon, no agents): see
+  /// [MobileHost]. One per app.
+  static MobileHost? mobile;
+  static RelayClient? _mobileClient;
+
   Future<RelayClient> connect({void Function(String)? onStatus}) async {
+    if (isMobile) {
+      if (_mobileClient != null) return _mobileClient!;
+      final home = Platform.environment['RELAY_HOME'] ?? p.join((await getApplicationSupportDirectory()).path, 'relay');
+      mobile = MobileHost(RelayPaths(home));
+      return _mobileClient = await mobile!.start();
+    }
     try {
       return await RelayClient.connect(paths);
     } catch (_) {}

@@ -28,6 +28,10 @@ class SyncService {
 
   /// The team Worker's room; idle unless storage is a Worker.
   late final LiveLink live;
+
+  /// Per-agent live numbers for this device's record (set by relayd):
+  /// `{agentId: {active, costToday, limitedUntil}}`.
+  Map<String, Map<String, Object?>> Function()? agentStats;
   Timer? _poke;
 
   final DaemonContext ctx;
@@ -83,13 +87,25 @@ class SyncService {
   void publishDevice() {
     final agents = store.list<AgentProfile>(Kind.agent).where((a) => a.binaryPath != null && a.enabled).toList();
     final current = store.get<DeviceInfo>(Kind.device, ctx.deviceId);
+    final stats = agentStats?.call() ?? const {};
     final fields = <String, Object?>{
       'name': ctx.setting('deviceName', _defaultDeviceName()),
       'person': ctx.setting('userName', 'You'),
       'shareAgents': ctx.boolSetting('shareAgents', false),
+      'kind': ctx.setting('deviceKind', 'mac'),
+      'companionOf': ctx.store.meta('settings.companionOf'),
       'agents': [
         for (final a in agents)
-          {'id': a.id, 'name': a.name, 'color': a.color, 'letter': a.letter, 'slots': a.slots, 'version': a.version},
+          {
+            'id': a.id,
+            'name': a.name,
+            'color': a.color,
+            'letter': a.letter,
+            'slots': a.slots,
+            'version': a.version,
+            'dailyCapUsd': a.dailyCapUsd,
+            ...?stats[a.id],
+          },
       ],
     };
     final changed = current == null || fields.entries.any((e) => '${current.data[e.key]}' != '${e.value}');
@@ -150,6 +166,9 @@ class SyncService {
     'live': live.connected,
     'online': live.online.toList(),
     'liveIn': live.received,
+    'pairedMac': secrets.pairing?.mac,
+    'pairedMacName': secrets.pairing?.macName,
+    'phones': secrets.companions.length,
     'liveOut': live.sent,
   };
 
@@ -292,6 +311,116 @@ class SyncService {
       throw RpcError(RpcError.invalidParams, e.message);
     }
     await syncNow();
+    return status();
+  }
+
+  // ------------------------------------------------------------ push
+
+  WorkerBackend get _worker {
+    final b = _engine?.backend;
+    if (b is! WorkerBackend) throw RpcError(RpcError.invalidParams, 'Phone notifications go through the team Worker. Set up team sync with a Cloudflare Worker first.');
+    return b;
+  }
+
+  Future<Map<String, Object?>> pushConfig(Map<String, Object?> p) async {
+    String req(String k) => (p[k] as String? ?? '').trim().isEmpty ? throw RpcError(RpcError.invalidParams, 'Fill in $k.') : (p[k] as String).trim();
+    try {
+      await _worker.pushConfig(keyId: req('keyId'), teamId: req('teamId'), bundleId: p['bundleId'] as String? ?? 'com.binarycastle.relay', p8: req('p8'));
+      return await _worker.pushStatus();
+    } on StorageException catch (e) {
+      throw RpcError(RpcError.invalidParams, e.message);
+    }
+  }
+
+  Future<Map<String, Object?>> pushStatus() async {
+    try {
+      return await _worker.pushStatus();
+    } on StorageException catch (e) {
+      return {'configured': false, 'error': e.message};
+    }
+  }
+
+  /// On a phone: its APNs token, so its Mac can wake it.
+  Future<void> pushRegister(String token, {bool sandbox = false}) async {
+    try {
+      await _worker.pushRegister(device: ctx.deviceId, token: token, sandbox: sandbox);
+    } on StorageException catch (e) {
+      throw RpcError(RpcError.internal, e.message);
+    }
+  }
+
+  DateTime? _pushOffUntil;
+
+  /// Wakes this Mac's paired phones that aren't connected right now (a
+  /// phone in the room already shows it). With `pushPreview` off, the text
+  /// that goes through Apple says only what kind of thing happened.
+  Future<void> pushToPhones(Map<String, Object?> note) async {
+    final b = _engine?.backend;
+    if (b is! WorkerBackend) return;
+    if (_pushOffUntil != null && DateTime.now().isBefore(_pushOffUntil!)) return;
+    final phones = store.list<DeviceInfo>(Kind.device).where((d) => !d.revoked && d.data['companionOf'] == ctx.deviceId && !live.online.contains(d.id));
+    final preview = ctx.boolSetting('pushPreview', true);
+    final generic = switch (note['kind']) {
+      'ask' => 'An agent needs you',
+      'review' => 'Work is ready for review',
+      'failed' => 'A task failed',
+      'mention' => 'You were mentioned',
+      _ => 'Relay',
+    };
+    for (final phone in phones) {
+      try {
+        await b.push(
+          to: phone.id,
+          title: preview ? '${note['title']}' : generic,
+          body: preview ? '${note['body'] ?? ''}' : '',
+          data: {'taskId': ?note['taskId'], 'channelId': ?note['channelId']},
+        );
+      } on StorageException catch (e) {
+        // Not set up (501) or no registration yet: don't keep asking.
+        if (e.message.contains('not set up')) _pushOffUntil = DateTime.now().add(const Duration(minutes: 10));
+      }
+    }
+  }
+
+  // ------------------------------------------------------------ phones
+
+  /// A code (shown as a QR) that pairs a phone with this Mac: a one-time
+  /// team invite plus a key only the two of them hold, which signs the
+  /// phone's commands (answer an agent, steer a run).
+  Future<Map<String, Object?>> pairPhone() async {
+    if (!inTeam) throw RpcError(RpcError.invalidParams, 'Set up team sync first (Settings → Team). The phone reaches this Mac through it.');
+    if (secrets.storage!.kind == 'folder') throw RpcError(RpcError.invalidParams, 'A phone can\'t reach a shared folder. Use a Cloudflare Worker for team sync.');
+    final invite = await _e.createInvite();
+    final pairing = Pairing(
+      id: newId(),
+      key: RelayCrypto.randomBytes(32),
+      mac: ctx.deviceId,
+      macName: ctx.setting('deviceName', _defaultDeviceName()),
+      person: ctx.setting('userName', 'You'),
+    );
+    secrets.companions[pairing.id] = pairing.key;
+    secrets.save(secretsPath);
+    return {'code': pairing.encode(invite), 'macName': pairing.macName};
+  }
+
+  /// On a phone: joins the team from a Mac's pairing code and becomes
+  /// that Mac's companion.
+  Future<Map<String, Object?>> pairWith(String code) async {
+    final (Pairing pairing, String invite) parsed;
+    try {
+      parsed = Pairing.parse(code);
+    } on FormatException catch (e) {
+      throw RpcError(RpcError.invalidParams, e.message);
+    }
+    final (pairing, invite) = parsed;
+    store.setMeta('settings.userName', pairing.person);
+    store.setMeta('settings.companionOf', pairing.mac);
+    store.setMeta('settings.deviceKind', 'phone');
+    if (store.meta('settings.deviceName') == null) store.setMeta('settings.deviceName', '${pairing.person.split(' ').first}\'s iPhone');
+    await join(invite);
+    secrets.pairing = pairing;
+    secrets.save(secretsPath);
+    publishDevice();
     return status();
   }
 

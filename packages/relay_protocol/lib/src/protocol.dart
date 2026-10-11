@@ -83,6 +83,11 @@ abstract final class M {
   static const syncNow = 'sync.now';
   static const syncRevoke = 'sync.revoke';
   static const syncLeave = 'sync.leave';
+  static const syncPairPhone = 'sync.pairPhone';
+  static const syncPair = 'sync.pair';
+  static const pushConfig = 'push.config';
+  static const pushStatus = 'push.status';
+  static const pushRegister = 'push.register';
   static const devicesList = 'devices.list';
 
   static const channelsList = 'channels.list';

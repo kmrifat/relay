@@ -110,7 +110,9 @@ class Supervisor {
     final runOn = t.str('runOn') ?? t.str('createdOn') ?? (sync?.inTeam ?? false ? null : ctx.deviceId);
     if (runOn != ctx.deviceId) return false;
     final from = t.str('createdOn');
-    if (from != null && from != ctx.deviceId && !ctx.boolSetting('shareAgents', false)) {
+    // My own phone queuing work on my Mac is me, not a teammate.
+    final mine = from == null || from == ctx.deviceId || ctx.store.get<DeviceInfo>(Kind.device, from)?.data['companionOf'] == ctx.deviceId;
+    if (!mine && !ctx.boolSetting('shareAgents', false)) {
       if (t.data['attention'] != 'not-shared') {
         ctx.store.patch<Task>(Kind.task, t.id, {'attention': 'not-shared'});
       }

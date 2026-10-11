@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:relay_core/relay_core.dart';
+import 'package:relay_protocol/relay_protocol.dart';
 import 'package:relay_sync/relay_sync.dart';
 
 import 'context.dart';
@@ -26,6 +27,25 @@ class LiveLink {
 
   /// Connected/online changed.
   final void Function() onChange;
+
+  /// Runs a command from this device's paired phone (set by relayd).
+  Future<Object?> Function(String method, Map<String, Object?> params)? onCommand;
+
+  /// What a paired phone may ask its Mac to do: answer the agents and
+  /// steer runs. Everything else syncs as data.
+  static const remoteMethods = {
+    'permissions.answer',
+    'comments.post',
+    'runs.start',
+    'runs.steer',
+    'runs.stop',
+    'runs.pause',
+    'runs.resume',
+    'agents.update',
+  };
+
+  final _pending = <String, Completer<Object?>>{};
+  int _cmdSeq = 0;
 
   WebSocket? _ws;
   bool _running = false;
@@ -109,6 +129,44 @@ class LiveLink {
   /// Tells teammates there is something to pull.
   void poke() => _send({'t': 'poke'});
 
+  /// Asks this phone's Mac to run [method] (one of [remoteMethods]) and
+  /// waits for its answer. Signed with the pairing key, so other team
+  /// members can't pass for this phone.
+  Future<Object?> command(String method, Map<String, Object?> params, {Duration timeout = const Duration(seconds: 15)}) async {
+    final pairing = secrets.pairing ?? (throw StateError('This device is not paired with a Mac.'));
+    if (_ws == null) throw const CommandFailed('Not connected to the team. Check the connection.');
+    if (!online.contains(pairing.mac)) throw CommandFailed('${pairing.macName} is offline or asleep.');
+    final id = '${ctx.deviceId}-${++_cmdSeq}-${DateTime.now().microsecondsSinceEpoch}';
+    final body = jsonEncode({'method': method, 'params': params});
+    final done = _pending[id] = Completer<Object?>();
+    await _send({'t': 'cmd', 'to': pairing.mac, 'id': id, 'pair': pairing.id, 'body': body, 'mac': await RelayCrypto.pairMac(pairing.key, '$id|$body')});
+    try {
+      return await done.future.timeout(timeout, onTimeout: () => throw CommandFailed('${pairing.macName} did not answer.'));
+    } finally {
+      _pending.remove(id);
+    }
+  }
+
+  Future<void> _onCommand(Map<String, Object?> msg) async {
+    final id = msg['id'] as String? ?? '';
+    final from = msg['from'] as String? ?? '';
+    Future<void> ack(Map<String, Object?> r) => _send({'t': 'ack', 'to': from, 'id': id, ...r});
+    final key = secrets.companions[msg['pair'] as String? ?? ''];
+    final body = msg['body'] as String? ?? '';
+    if (key == null || onCommand == null || await RelayCrypto.pairMac(key, '$id|$body') != msg['mac']) {
+      return ack({'ok': false, 'error': 'This Mac does not take commands from that device.'});
+    }
+    final j = (jsonDecode(body) as Map).cast<String, Object?>();
+    final method = j['method'] as String? ?? '';
+    if (!remoteMethods.contains(method)) return ack({'ok': false, 'error': '$method is not allowed from a phone.'});
+    try {
+      final result = await onCommand!(method, (j['params'] as Map? ?? const {}).cast<String, Object?>());
+      await ack({'ok': true, 'result': result});
+    } catch (e) {
+      await ack({'ok': false, 'error': e is RpcError ? e.message : '$e'});
+    }
+  }
+
   /// Asks the device running [runId] for its events after [after].
   void want(String runId, int after) => _send({'t': 'want', 'runId': runId, 'after': after});
 
@@ -169,7 +227,14 @@ class LiveLink {
       return; // not ours, or tampered: drop it
     }
     received++;
+    if (msg['to'] != null && msg['to'] != ctx.deviceId) return; // addressed to someone else
     switch (msg['t']) {
+      case 'cmd':
+        await _onCommand(msg);
+      case 'ack':
+        final done = _pending[msg['id'] as String? ?? ''];
+        if (done == null || done.isCompleted) return;
+        msg['ok'] == true ? done.complete(msg['result']) : done.completeError(CommandFailed('${msg['error']}'));
       case 'poke':
         onPoke();
       case 'run':
@@ -184,4 +249,12 @@ class LiveLink {
         if (events.isNotEmpty) await _send({'t': 'run', 'runId': runId, 'events': [for (final e in events) e.toJson()]});
     }
   }
+}
+
+/// A phone's command didn't reach its Mac or the Mac refused it.
+class CommandFailed implements Exception {
+  const CommandFailed(this.message);
+  final String message;
+  @override
+  String toString() => message;
 }

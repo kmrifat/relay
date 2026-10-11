@@ -111,8 +111,9 @@ class StorageSettings {
 /// home folder: the device's X25519 seed, the team key ring, and the
 /// storage credentials. Nothing here is ever synced or logged.
 class Secrets {
-  Secrets({required this.deviceSeed, this.teamId, this.teamName, Map<int, Uint8List>? keyring, this.storage})
-    : keyring = keyring ?? {};
+  Secrets({required this.deviceSeed, this.teamId, this.teamName, Map<int, Uint8List>? keyring, this.storage, Map<String, Uint8List>? companions, this.pairing})
+    : keyring = keyring ?? {},
+      companions = companions ?? {};
 
   factory Secrets.fresh() => Secrets(deviceSeed: RelayCrypto.randomBytes(32));
 
@@ -126,6 +127,8 @@ class Secrets {
       teamName: j['teamName'] as String?,
       keyring: {for (final e in ((j['keyring'] as Map?) ?? {}).entries) int.parse('${e.key}'): unb64(e.value as String)},
       storage: j['storage'] == null ? null : StorageSettings.fromJson((j['storage'] as Map).cast()),
+      companions: {for (final e in ((j['companions'] as Map?) ?? {}).entries) '${e.key}': unb64(e.value as String)},
+      pairing: j['pairing'] == null ? null : Pairing.fromJson((j['pairing'] as Map).cast()),
     );
   }
 
@@ -137,6 +140,12 @@ class Secrets {
   /// history; a removed device never gets keys for later epochs.
   final Map<int, Uint8List> keyring;
   StorageSettings? storage;
+
+  /// On a Mac: pairing id → key of each phone paired with it.
+  final Map<String, Uint8List> companions;
+
+  /// On a phone: the Mac it is paired with.
+  Pairing? pairing;
 
   int get currentEpoch => keyring.isEmpty ? 0 : keyring.keys.reduce((a, b) => a > b ? a : b);
   bool get inTeam => teamId != null && storage != null && keyring.isNotEmpty;
@@ -155,15 +164,54 @@ class Secrets {
       'teamName': ?teamName,
       'keyring': {for (final e in keyring.entries) '${e.key}': b64(e.value)},
       if (storage != null) 'storage': storage!.toJson(),
+      if (companions.isNotEmpty) 'companions': {for (final e in companions.entries) e.key: b64(e.value)},
+      if (pairing != null) 'pairing': pairing!.toJson(),
     }));
-    if (!Platform.isWindows) Process.runSync('chmod', ['600', tmp.path]);
+    // Phones sandbox the app's files; desktops get owner-only access.
+    if (!Platform.isWindows && !Platform.isIOS && !Platform.isAndroid) Process.runSync('chmod', ['600', tmp.path]);
     tmp.renameSync(path);
   }
 
   void leave() {
+    companions.clear();
+    pairing = null;
     teamId = null;
     teamName = null;
     keyring.clear();
     storage = null;
+  }
+}
+
+/// A phone's link to its Mac: which Mac, and the key that signs commands.
+class Pairing {
+  Pairing({required this.id, required this.key, required this.mac, required this.macName, required this.person});
+
+  factory Pairing.fromJson(Map<String, Object?> j) => Pairing(
+    id: j['id'] as String,
+    key: unb64(j['k'] as String),
+    mac: j['mac'] as String,
+    macName: j['macName'] as String? ?? 'Mac',
+    person: j['person'] as String? ?? '',
+  );
+
+  final String id;
+  final Uint8List key;
+  final String mac;
+  final String macName;
+  final String person;
+
+  Map<String, Object?> toJson() => {'id': id, 'k': b64(key), 'mac': mac, 'macName': macName, 'person': person};
+
+  static const prefix = 'relay-pair:';
+
+  /// The QR / paste code: the team invite plus this pairing.
+  String encode(String invite) => '$prefix${b64(utf8.encode(jsonEncode({...toJson(), 'invite': invite})))}';
+
+  /// (pairing, invite code).
+  static (Pairing, String) parse(String code) {
+    final c = code.trim();
+    if (!c.startsWith(prefix)) throw const FormatException('Not a Relay pairing code.');
+    final j = (jsonDecode(utf8.decode(unb64(c.substring(prefix.length)))) as Map).cast<String, Object?>();
+    return (Pairing.fromJson(j), j['invite'] as String);
   }
 }

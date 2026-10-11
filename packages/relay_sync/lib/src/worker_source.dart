@@ -8,7 +8,8 @@ const workerSource = r'''// Relay team Worker (docs/format/worker.md).
 // everything but team.json and member public keys is sealed on the devices.
 //
 // Bindings: BUCKET (R2), ROOM (Durable Object TeamRoom), SETUP_TOKEN (secret,
-// single use: configures the team's first access key).
+// single use: configures the team's first access key). APNS_HOST (optional,
+// tests) points push at another host than Apple's.
 //
 // Every request goes to the team's one Durable Object, so conditional writes
 // are serialized there (R2's binding has no create-only put).
@@ -62,6 +63,10 @@ export class TeamRoom {
     if (path === 'list' && request.method === 'GET') return this.list(url, root);
     if (path === 'epoch' && request.method === 'POST') return this.publishEpoch(request, auth, root);
     if (path === 'ws') return this.connect(request, url);
+    if (path === 'push/config' && request.method === 'POST') return this.pushConfig(request);
+    if (path === 'push/config' && request.method === 'GET') return this.pushStatus();
+    if (path === 'push/register' && request.method === 'POST') return this.pushRegister(request);
+    if (path === 'push' && request.method === 'POST') return this.push(request);
     return text(404, 'No such endpoint.');
   }
 
@@ -153,6 +158,75 @@ export class TeamRoom {
     return json({ objects, truncated: res.truncated, cursor: res.truncated ? res.cursor : null });
   }
 
+  // ------------------------------------------------------------ push (APNs)
+
+  /// The team's own APNs key (a .p8 from developer.apple.com), kept in the
+  /// Durable Object; never returned.
+  async pushConfig(request) {
+    const { keyId, teamId, bundleId, p8 } = await request.json();
+    if (!/^[A-Z0-9]{10}$/.test(keyId || '') || !/^[A-Z0-9]{10}$/.test(teamId || '') || !/^[\w.-]+$/.test(bundleId || '')) {
+      return text(400, 'Key ID and team ID are 10 letters/digits; give the app bundle ID.');
+    }
+    try {
+      await importP8(p8);
+    } catch {
+      return text(400, 'That is not an APNs .p8 key.');
+    }
+    await this.ctx.storage.put('apns', { keyId, teamId, bundleId, p8 });
+    this.jwt = null;
+    return json({ ok: true });
+  }
+
+  async pushStatus() {
+    const c = await this.ctx.storage.get('apns');
+    const devices = (await this.ctx.storage.list({ prefix: 'push:' })).size;
+    return json({ configured: !!c, keyId: c?.keyId ?? null, bundleId: c?.bundleId ?? null, devices });
+  }
+
+  /// A phone's APNs device token.
+  async pushRegister(request) {
+    const { device, token, sandbox } = await request.json();
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(device || '') || !/^[0-9a-fA-F]{32,200}$/.test(token || '')) return text(400, 'Bad registration.');
+    await this.ctx.storage.put(`push:${device}`, { token, sandbox: !!sandbox, at: Date.now() });
+    return json({ ok: true });
+  }
+
+  /// Sends {title, body, data} to one device's phone. The text goes through
+  /// Apple; relayd keeps it short and can make it generic.
+  async push(request) {
+    const { to, title, body, data } = await request.json();
+    const c = await this.ctx.storage.get('apns');
+    if (!c) return text(501, 'Push is not set up for this team.');
+    const reg = await this.ctx.storage.get(`push:${to}`);
+    if (!reg) return text(404, 'That device has no push registration.');
+    const host = this.env.APNS_HOST || (reg.sandbox ? 'https://api.sandbox.push.apple.com' : 'https://api.push.apple.com');
+    const res = await fetch(`${host}/3/device/${reg.token}`, {
+      method: 'POST',
+      headers: {
+        authorization: `bearer ${await this.apnsJwt(c)}`,
+        'apns-topic': c.bundleId,
+        'apns-push-type': 'alert',
+        'apns-priority': '10',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ aps: { alert: { title: String(title || 'Relay').slice(0, 120), body: String(body || '').slice(0, 300) }, sound: 'default' }, relay: data || {} }),
+    });
+    if (res.status === 410) await this.ctx.storage.delete(`push:${to}`); // the app was removed
+    return json({ ok: res.ok, status: res.status, reason: res.ok ? null : await res.text() }, res.ok ? 200 : 502);
+  }
+
+  /// ES256 provider token, reused for 50 minutes (Apple allows up to 60).
+  async apnsJwt(c) {
+    const now = Math.floor(Date.now() / 1000);
+    if (this.jwt && this.jwt.at > now - 3000) return this.jwt.token;
+    const enc = (o) => b64url(new TextEncoder().encode(JSON.stringify(o)));
+    const head = `${enc({ alg: 'ES256', kid: c.keyId })}.${enc({ iss: c.teamId, iat: now })}`;
+    const key = await importP8(c.p8);
+    const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key, new TextEncoder().encode(head));
+    this.jwt = { at: now, token: `${head}.${b64url(new Uint8Array(sig))}` };
+    return this.jwt.token;
+  }
+
   // ------------------------------------------------------------ live
 
   /// WebSocket for live messages. The room relays each message, as is, to
@@ -213,6 +287,18 @@ async function sha256hex(s) {
 
 async function same(a, b) {
   return (await sha256hex(a)) === (await sha256hex(b));
+}
+
+async function importP8(pem) {
+  const b64 = String(pem || '').replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const der = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+  return crypto.subtle.importKey('pkcs8', der, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign']);
+}
+
+function b64url(bytes) {
+  let s = '';
+  for (const b of bytes) s += String.fromCharCode(b);
+  return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function safeSend(ws, msg) {
