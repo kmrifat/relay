@@ -232,6 +232,12 @@ void main() {
       final t = (await client.map(M.tasksGet, {'id': task['id']}))['task'] as Map;
       return t['status'] == 'review' ? t : null;
     });
+    // A single-repo task starts in the repo; the workspace around it (PROJECT.md) is added.
+    final runId = (((await client.map(M.tasksGet, {'id': task['id']}))['runs'] as List).last as Map)['id'];
+    final events = await client.list(M.runsEvents, {'runId': runId});
+    final read = events.firstWhere((e) => e['type'] == 'tool_use' && (e['data'] as Map)['tool'] == 'Read');
+    expect((read['data'] as Map)['summary'], endsWith('PROJECT.md'));
+    expect(events.where((e) => e['type'] == 'tool_result').every((e) => (e['data'] as Map)['ok'] == true), isTrue);
     final res = await client.list(M.changesPush, {'taskId': task['id']});
     expect(res.single['ok'], isTrue, reason: '${res.single}');
     final branches = await Git().run(bare, ['branch', '--format=%(refname:short)']);

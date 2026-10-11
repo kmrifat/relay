@@ -12,6 +12,7 @@ class RunSpec {
     this.argsTemplate,
     this.environment = const {},
     this.mcpConfigPath,
+    this.addDirs = const [],
     this.autoApprove = false,
   });
 
@@ -31,9 +32,17 @@ class RunSpec {
   /// An MCP config file giving the agent the `relay` tools.
   final String? mcpConfigPath;
 
+  /// Folders besides [cwd] the agent may use: the task workspace (PROJECT.md,
+  /// the read-only snapshots) when the agent starts in one of its repos.
+  final List<String> addDirs;
+
   /// Skip Relay's permission prompts (the user chose "Always" for everything).
   final bool autoApprove;
 }
+
+/// The name of Relay's MCP server in the config `mcpConfigJson` writes; its
+/// tools are `mcp__relay__…` in Claude Code.
+const relayMcpServer = 'relay';
 
 /// A normalised event from any agent. `type` is one of `RunEventType`.
 class AgentEvent {

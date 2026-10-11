@@ -93,7 +93,7 @@ class AgentRegistry {
 /// Encodes an MCP config file that gives an agent the `relay` tools.
 String mcpConfigJson({required String relayBinary, required String runId, required String socket}) => jsonEncode({
   'mcpServers': {
-    'relay': {
+    relayMcpServer: {
       'command': relayBinary,
       'args': ['mcp', '--run', runId],
       'env': {'RELAY_SOCKET': socket},

@@ -71,8 +71,30 @@ void main() {
     expect(args, containsAllInOrder(['-p', '--input-format', 'stream-json', '--output-format', 'stream-json']));
     expect(args, containsAllInOrder(['--model', 'opus']));
     expect(args, containsAllInOrder(['--resume', 's1']));
-    expect(args, containsAllInOrder(['--permission-prompts', 'host']));
-    expect(ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', autoApprove: true)), contains('bypassPermissions'));
+    // Without a prompt tool nobody is asked: prompts are denied as "permissions not granted".
+    expect(args, containsAllInOrder(['--permission-prompts', 'host', '--permission-prompt-tool', 'stdio']));
+    expect(args, isNot(contains('--allowedTools')));
+    expect(args, isNot(contains('--add-dir')));
+    final auto = ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', autoApprove: true));
+    expect(auto, containsAllInOrder(['--permission-mode', 'bypassPermissions']));
+    expect(auto, isNot(contains('--permission-prompt-tool')));
+  });
+
+  test('Claude Code args: relay MCP tools are pre-allowed, the workspace is added', () {
+    final args = ClaudeCodeAdapter.argsFor(RunSpec(
+      prompt: 'p',
+      cwd: '/ws/ga-3/app-admin',
+      mcpConfigPath: '/relay/mcp/r1.json',
+      addDirs: ['/ws/ga-3'],
+    ));
+    expect(args, containsAllInOrder(['--mcp-config', '/relay/mcp/r1.json', '--allowedTools', 'mcp__relay__*']));
+    expect(args, containsAllInOrder(['--add-dir', '/ws/ga-3']));
+    expect(args, containsAllInOrder(['--permission-prompts', 'host', '--permission-prompt-tool', 'stdio']));
+    // --mcp-config, --allowedTools and --add-dir take several values: each must end at a flag.
+    for (final flag in ['--mcp-config', '--allowedTools', '--add-dir']) {
+      final i = args.indexOf(flag);
+      expect(args[i + 2], startsWith('--'), reason: '$flag would swallow ${args[i + 2]}');
+    }
   });
 
   test('Codex: transcript → events', () async {
