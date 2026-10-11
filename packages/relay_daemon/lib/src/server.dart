@@ -17,7 +17,7 @@ import 'sync_service.dart';
 import 'terminals.dart';
 import 'workspaces.dart';
 
-const relayVersion = '0.1.0';
+const relayVersion = '0.1.1';
 
 class AlreadyRunning implements Exception {
   AlreadyRunning(this.pid);
