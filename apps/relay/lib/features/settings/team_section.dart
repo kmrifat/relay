@@ -259,6 +259,10 @@ class _InTeam extends ConsumerWidget {
           FieldRow('Sync every', Row(children: [
             Segmented<int>(small: true, options: const [(15, '15 s'), (30, '30 s'), (60, '1 min'), (300, '5 min')], value: interval, onChanged: (v) => setting('syncIntervalSeconds', v)),
           ]), labelWidth: 120),
+          if (storage['kind'] == 'worker') ...[
+            const Hairline(),
+            FieldRow('iPhone push', _PushRow(phones: (s['phones'] as num?)?.toInt() ?? 0), labelWidth: 120),
+          ],
           const Hairline(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -379,6 +383,135 @@ class _InTeam extends ConsumerWidget {
           }),
         ],
       ),
+    );
+  }
+}
+
+/// Push to paired iPhones (M8-04): the team's own APNs key, kept in the
+/// team Worker. Without it, phones still get everything while open.
+class _PushRow extends ConsumerStatefulWidget {
+  const _PushRow({required this.phones});
+  final int phones;
+  @override
+  ConsumerState<_PushRow> createState() => _PushRowState();
+}
+
+class _PushRowState extends ConsumerState<_PushRow> {
+  Map<String, Object?>? status;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final s = await ref.read(clientProvider).map(M.pushStatus);
+    if (mounted) setState(() => status = s);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    final on = status?['configured'] == true;
+    return Row(children: [
+      Dot(on ? c.success : c.text3),
+      const SizedBox(width: 6),
+      Expanded(
+        child: Text(
+          status == null
+              ? '…'
+              : on
+              ? 'On · ${status!['devices']} phone${status!['devices'] == 1 ? '' : 's'} registered'
+              : (widget.phones == 0 ? 'Pair an iPhone first, then set up push' : 'Off · phones only hear while Relay is open'),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: context.t(12),
+        ),
+      ),
+      Btn(on ? 'Change…' : 'Set up…', small: true, onTap: () async {
+        await showDialog<void>(context: context, builder: (_) => const _PushSetup());
+        await _load();
+      }),
+    ]);
+  }
+}
+
+class _PushSetup extends ConsumerStatefulWidget {
+  const _PushSetup();
+  @override
+  ConsumerState<_PushSetup> createState() => _PushSetupState();
+}
+
+class _PushSetupState extends ConsumerState<_PushSetup> {
+  final keyId = TextEditingController();
+  final teamId = TextEditingController();
+  final bundle = TextEditingController(text: 'com.binarycastle.relay');
+  String? p8, p8Name, error;
+  bool preview = true, busy = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return AlertDialog(
+      title: Text('Push to your iPhone', style: context.t(14, w: FontWeight.w600)),
+      content: SizedBox(
+        width: 440,
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('Uses your own Apple key (developer.apple.com → Keys → + → Apple Push Notifications service). '
+              'The key is stored in your team Worker and never leaves it.', style: context.t(12, color: c.text2)),
+          const SizedBox(height: 12),
+          Box(
+            child: Column(children: [
+              FieldRow('Key (.p8)', Row(children: [
+                Expanded(child: Text(p8Name ?? 'No file chosen', style: context.t(12, color: p8 == null ? c.text3 : c.text))),
+                Btn('Choose…', small: true, onTap: () async {
+                  final f = await openFile(acceptedTypeGroups: const [XTypeGroup(label: 'APNs key', extensions: ['p8'])]);
+                  if (f == null) return;
+                  final text = await f.readAsString();
+                  setState(() {
+                    p8 = text;
+                    p8Name = f.name;
+                    final m = RegExp(r'AuthKey_([A-Z0-9]{10})').firstMatch(f.name);
+                    if (m != null && keyId.text.isEmpty) keyId.text = m.group(1)!;
+                  });
+                }),
+              ]), labelWidth: 110),
+              const Hairline(),
+              FieldRow('Key ID', FieldInput(controller: keyId, hint: 'ABCDE12345', mono: true, size: 12), labelWidth: 110),
+              const Hairline(),
+              FieldRow('Apple team ID', FieldInput(controller: teamId, hint: 'Membership → Team ID', mono: true, size: 12), labelWidth: 110),
+              const Hairline(),
+              FieldRow('App bundle ID', FieldInput(controller: bundle, mono: true, size: 12), labelWidth: 110),
+            ]),
+          ),
+          const SizedBox(height: 8),
+          Row(children: [
+            Expanded(child: Text('Show task names in notifications (they pass through Apple). Off: "An agent needs you".', style: context.t(11, color: c.text2))),
+            Transform.scale(scale: 0.7, child: Switch(value: preview, onChanged: (v) => setState(() => preview = v), activeTrackColor: c.accent)),
+          ]),
+          if (error != null) Text(error!, style: context.t(12, color: c.danger)),
+        ]),
+      ),
+      actions: [
+        Btn('Cancel', onTap: () => Navigator.pop(context)),
+        Btn(busy ? 'Saving…' : 'Save', kind: BtnKind.primary, onTap: busy || p8 == null
+            ? null
+            : () async {
+                setState(() => busy = true);
+                try {
+                  final client = ref.read(clientProvider);
+                  await client.map(M.pushConfig, {'keyId': keyId.text.trim(), 'teamId': teamId.text.trim(), 'bundleId': bundle.text.trim(), 'p8': p8});
+                  await client.call(M.settingsSet, {'values': {'pushPreview': preview}});
+                  if (context.mounted) Navigator.pop(context);
+                } on RpcError catch (e) {
+                  setState(() {
+                    error = e.message;
+                    busy = false;
+                  });
+                }
+              }),
+      ],
     );
   }
 }

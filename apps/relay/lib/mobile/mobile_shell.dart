@@ -7,6 +7,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import '../app/theme.dart' show hexColor;
+import '../data/notifications.dart';
 import '../data/relay_data.dart';
 import 'channel_screen.dart';
 import 'glass.dart';
@@ -25,6 +26,29 @@ class MobileShell extends ConsumerStatefulWidget {
 class _MobileShellState extends ConsumerState<MobileShell> {
   int tab = 0;
   String? projectId;
+  bool _registered = false;
+  int _badge = -1;
+
+  @override
+  void initState() {
+    super.initState();
+    NativeNotifications.instance
+      ..init()
+      ..onOpen = (info) {
+        if (!mounted) return;
+        if (info['taskId'] is String) openTask(context, info['taskId'] as String);
+        if (info['channelId'] is String && info['taskId'] == null) {
+          Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => ChannelScreen(channelId: info['channelId'] as String)));
+        }
+      }
+      ..onToken = (token, sandbox) async {
+        try {
+          await ref.read(clientProvider).call(M.pushRegister, {'token': token, 'sandbox': sandbox});
+        } on RpcError {
+          // The team has no Worker push yet; the Mac's Settings sets it up.
+        }
+      };
+  }
 
   static const tabs = [
     (LucideIcons.inbox, 'Inbox'),
@@ -39,6 +63,27 @@ class _MobileShellState extends ConsumerState<MobileShell> {
     final sync = ref.watch(syncStatusProvider);
     if (sync.isEmpty) return const Scaffold(backgroundColor: MC.bg);
     if (!view.paired) return const PairScreen();
+    if (!_registered) {
+      _registered = true;
+      NativeNotifications.instance.registerForPush();
+    }
+    // While open (or just backgrounded), relayd's notify events become local
+    // notifications; when the app is gone, the Mac pushes through APNs.
+    ref.listen(notifyProvider, (_, next) {
+      final n = next.value;
+      if (n == null) return;
+      NativeNotifications.instance.post(
+        id: '${n['kind']}-${n['taskId'] ?? n['messageId'] ?? DateTime.now().microsecondsSinceEpoch}',
+        title: '${n['title']}',
+        body: '${n['body']}',
+        info: {'taskId': ?n['taskId'], 'channelId': ?n['channelId']},
+      );
+    });
+    final asks = view.asks.length;
+    if (asks != _badge) {
+      _badge = asks;
+      NativeNotifications.instance.badge(asks);
+    }
     final projects = view.data.projects;
     final pid = projects.any((p) => p.id == projectId) ? projectId : projects.firstOrNull?.id;
     final pages = [

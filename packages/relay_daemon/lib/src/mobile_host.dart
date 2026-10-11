@@ -203,6 +203,10 @@ class MobileHost {
     M.syncNow: (_) => sync.syncNow(),
     M.syncPair: (p) async => sync.pairWith(_s(p, 'code')),
     M.syncLeave: (_) => sync.leave(),
+    M.pushRegister: (p) async {
+      await sync.pushRegister(_s(p, 'token'), sandbox: p['sandbox'] == true);
+      return true;
+    },
     M.channelsList: (_) => channels.list(),
     M.channelsRead: (p) {
       channels.markRead(_s(p, 'channelId'));

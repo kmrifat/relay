@@ -89,6 +89,26 @@ class WorkerBackend implements StorageBackend {
     return res.headers['etag'] ?? '';
   }
 
+  // ------------------------------------------------------------ push
+
+  /// Stores the team's APNs key in the Worker (it never comes back out).
+  Future<void> pushConfig({required String keyId, required String teamId, required String bundleId, required String p8}) async {
+    await _send('POST', _url('push/config'), what: 'push setup', body: utf8.encode(jsonEncode({'keyId': keyId, 'teamId': teamId, 'bundleId': bundleId, 'p8': p8})));
+  }
+
+  /// `{configured, keyId, bundleId, devices}`.
+  Future<Map<String, Object?>> pushStatus() async => (jsonDecode((await _send('GET', _url('push/config'), what: 'push status')).body) as Map).cast();
+
+  /// A phone's APNs device token.
+  Future<void> pushRegister({required String device, required String token, bool sandbox = false}) async {
+    await _send('POST', _url('push/register'), what: 'push registration', body: utf8.encode(jsonEncode({'device': device, 'token': token, 'sandbox': sandbox})));
+  }
+
+  /// Sends a notification to [to]'s phone through APNs.
+  Future<void> push({required String to, required String title, String body = '', Map<String, Object?> data = const {}}) async {
+    await _send('POST', _url('push'), what: 'push', body: utf8.encode(jsonEncode({'to': to, 'title': title, 'body': body, 'data': data})));
+  }
+
   /// The live room (`wss://…/v1/ws?device=…`).
   Uri socketUrl(String deviceId) =>
       _url('ws', {'device': deviceId}).replace(scheme: base.scheme == 'https' ? 'wss' : 'ws');

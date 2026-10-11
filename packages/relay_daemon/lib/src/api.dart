@@ -326,6 +326,8 @@ class Api {
       M.syncLeave: (_) async => sync.leave(),
       M.syncPairPhone: (_) async => sync.pairPhone(),
       M.syncPair: (p) async => sync.pairWith(_s(p, 'code')),
+      M.pushConfig: (p) async => sync.pushConfig(p),
+      M.pushStatus: (_) async => sync.pushStatus(),
       M.devicesList: (_) => _json(store.list<DeviceInfo>(Kind.device)),
 
       // ------------------------------------------------------------ channels

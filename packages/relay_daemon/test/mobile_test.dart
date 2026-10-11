@@ -25,6 +25,8 @@ void main() {
   late RelayClient mac;
   late MobileHost host;
   late RelayClient phone;
+  late HttpServer apns;
+  final pushes = <Map<String, Object?>>[];
 
   setUpAll(() async {
     if (!ready) return;
@@ -32,7 +34,15 @@ void main() {
     final bin = p.join(tmp.path, 'relay');
     final r = await Process.run('dart', ['compile', 'exe', 'bin/relay.dart', '-o', bin]);
     expect(r.exitCode, 0, reason: '${r.stderr}');
-    worker = await Process.start('node', ['test/serve.mjs', 'setup-secret'], workingDirectory: workerDir);
+    // A fake APNs that records what the Worker sends.
+    apns = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    apns.listen((req) async {
+      final body = await utf8.decodeStream(req);
+      pushes.add({'path': req.uri.path, 'topic': req.headers.value('apns-topic'), 'auth': req.headers.value('authorization'), ...(jsonDecode(body) as Map).cast<String, Object?>()});
+      await (req.response..statusCode = 200).close();
+    });
+    worker = await Process.start('node', ['test/serve.mjs', 'setup-secret'], workingDirectory: workerDir,
+        environment: {'APNS_HOST': 'http://127.0.0.1:${apns.port}'});
     final url = (await worker.stdout.transform(utf8.decoder).transform(const LineSplitter()).first).trim();
 
     macDaemon = RelayDaemon(RelayPaths(p.join(tmp.path, 'mac')), relayBinary: bin, detectOnStart: false, resolveShellEnv: false);
@@ -54,6 +64,7 @@ void main() {
       await macDaemon.stop();
     } catch (_) {}
     worker.kill();
+    await apns.close(force: true);
   });
 
   test('pair, see the board and agents, queue work on the Mac, answer its agent', skip: ready ? false : 'run npm ci in worker/', () async {
@@ -128,6 +139,29 @@ void main() {
     // Only allowed methods: the phone host never forwards others, and the
     // Mac refuses them anyway.
     await expectLater(host.sync.live.command(M.projectsCreate, {'name': 'x', 'key': 'x'}), throwsA(isA<CommandFailed>()));
+
+    // Push: the team's APNs key goes into the Worker; the phone registers;
+    // while the phone is away from the room, an agent's question wakes it.
+    final pem = await Process.run('sh', ['-c', 'openssl ecparam -genkey -name prime256v1 -noout | openssl pkcs8 -topk8 -nocrypt']);
+    expect(pem.exitCode, 0, reason: '${pem.stderr}');
+    final st = await mac.map(M.pushConfig, {'keyId': 'ABCDE12345', 'teamId': 'TEAM123456', 'p8': pem.stdout as String});
+    expect(st['configured'], isTrue);
+    await phone.call(M.pushRegister, {'token': 'ab' * 32, 'sandbox': true});
+    expect((await mac.map(M.pushStatus))['devices'], 1);
+    await host.sync.live.stop(); // the app went to the background
+    await waitFor(() async {
+      final s = await mac.map(M.syncStatus);
+      return (s['online'] as List).length == 1 ? s : null;
+    }, timeout: const Duration(seconds: 10));
+    await mac.call(M.tasksUpdate, {'id': task['id'], 'fields': {'attention': 'question', 'question': 'Ship it tonight?'}});
+    final push = await waitFor(() async => pushes.firstOrNull, timeout: const Duration(seconds: 10));
+    expect(push['path'], '/3/device/${'ab' * 32}');
+    expect(push['topic'], 'com.binarycastle.relay');
+    expect('${push['auth']}', startsWith('bearer '));
+    expect(((push['aps'] as Map)['alert'] as Map)['title'], 'TM-1 has a question');
+    expect((push['relay'] as Map)['taskId'], task['id']);
+    host.sync.live.start();
+    await waitFor(() async => host.sync.live.online.contains(macDaemon.ctx.deviceId) ? true : null, timeout: const Duration(seconds: 15));
 
     // The Mac goes away: commands say so.
     await mac.close();

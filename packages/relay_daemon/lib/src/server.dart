@@ -115,7 +115,7 @@ class RelayDaemon {
     sync = SyncService(ctx);
     supervisor.sync = sync;
     channels = Channels(ctx, sync);
-    notifier = Notifier(ctx);
+    notifier = Notifier(ctx)..onNotify = sync.pushToPhones;
     api = Api(ctx, supervisor, workspaces, terminals, sync, channels, startedAt: startedAt);
     sync.live.onCommand = api.invoke;
     sync.agentStats = () {

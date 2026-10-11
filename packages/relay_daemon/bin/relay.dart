@@ -19,6 +19,8 @@ relay — Relay's daemon, MCP server and command line
                                and create the team on it (token: CLOUDFLARE_API_TOKEN)
   relay team create NAME --folder PATH | --worker URL --setup-token T
   relay team status | invite | join CODE | sync | leave
+  relay team push-setup --p8 AuthKey_X.p8 --key-id ID --apple-team ID [--bundle ID]
+                               phone push through the team Worker (your APNs key)
   relay mcp --run RUN_ID       MCP server for an agent (stdio)
   relay demo-agent             the built-in demo agent (stream-json)
   relay version
@@ -136,6 +138,17 @@ Future<void> main(List<String> args) async {
             _printTeam(await c.map(M.syncJoin, {'code': rest[1]}));
           case 'sync':
             _printTeam(await c.map(M.syncNow));
+          case 'push-setup':
+            final p8 = _opt(rest, '--p8');
+            if (p8 == null) throw const FormatException('relay team push-setup --p8 AuthKey_X.p8 --key-id ID --apple-team ID');
+            final keyId = _opt(rest, '--key-id') ?? RegExp(r'AuthKey_([A-Z0-9]{10})').firstMatch(p8)?.group(1) ?? '';
+            final s = await c.map(M.pushConfig, {
+              'p8': File(p8).readAsStringSync(),
+              'keyId': keyId,
+              'teamId': _opt(rest, '--apple-team') ?? '',
+              'bundleId': ?_opt(rest, '--bundle'),
+            });
+            stdout.writeln('Push is on (${s['devices']} phone(s) registered).');
           case 'leave':
             _printTeam(await c.map(M.syncLeave));
           default:

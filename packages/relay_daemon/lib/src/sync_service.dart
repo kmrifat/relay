@@ -314,6 +314,74 @@ class SyncService {
     return status();
   }
 
+  // ------------------------------------------------------------ push
+
+  WorkerBackend get _worker {
+    final b = _engine?.backend;
+    if (b is! WorkerBackend) throw RpcError(RpcError.invalidParams, 'Phone notifications go through the team Worker. Set up team sync with a Cloudflare Worker first.');
+    return b;
+  }
+
+  Future<Map<String, Object?>> pushConfig(Map<String, Object?> p) async {
+    String req(String k) => (p[k] as String? ?? '').trim().isEmpty ? throw RpcError(RpcError.invalidParams, 'Fill in $k.') : (p[k] as String).trim();
+    try {
+      await _worker.pushConfig(keyId: req('keyId'), teamId: req('teamId'), bundleId: p['bundleId'] as String? ?? 'com.binarycastle.relay', p8: req('p8'));
+      return await _worker.pushStatus();
+    } on StorageException catch (e) {
+      throw RpcError(RpcError.invalidParams, e.message);
+    }
+  }
+
+  Future<Map<String, Object?>> pushStatus() async {
+    try {
+      return await _worker.pushStatus();
+    } on StorageException catch (e) {
+      return {'configured': false, 'error': e.message};
+    }
+  }
+
+  /// On a phone: its APNs token, so its Mac can wake it.
+  Future<void> pushRegister(String token, {bool sandbox = false}) async {
+    try {
+      await _worker.pushRegister(device: ctx.deviceId, token: token, sandbox: sandbox);
+    } on StorageException catch (e) {
+      throw RpcError(RpcError.internal, e.message);
+    }
+  }
+
+  DateTime? _pushOffUntil;
+
+  /// Wakes this Mac's paired phones that aren't connected right now (a
+  /// phone in the room already shows it). With `pushPreview` off, the text
+  /// that goes through Apple says only what kind of thing happened.
+  Future<void> pushToPhones(Map<String, Object?> note) async {
+    final b = _engine?.backend;
+    if (b is! WorkerBackend) return;
+    if (_pushOffUntil != null && DateTime.now().isBefore(_pushOffUntil!)) return;
+    final phones = store.list<DeviceInfo>(Kind.device).where((d) => !d.revoked && d.data['companionOf'] == ctx.deviceId && !live.online.contains(d.id));
+    final preview = ctx.boolSetting('pushPreview', true);
+    final generic = switch (note['kind']) {
+      'ask' => 'An agent needs you',
+      'review' => 'Work is ready for review',
+      'failed' => 'A task failed',
+      'mention' => 'You were mentioned',
+      _ => 'Relay',
+    };
+    for (final phone in phones) {
+      try {
+        await b.push(
+          to: phone.id,
+          title: preview ? '${note['title']}' : generic,
+          body: preview ? '${note['body'] ?? ''}' : '',
+          data: {'taskId': ?note['taskId'], 'channelId': ?note['channelId']},
+        );
+      } on StorageException catch (e) {
+        // Not set up (501) or no registration yet: don't keep asking.
+        if (e.message.contains('not set up')) _pushOffUntil = DateTime.now().add(const Duration(minutes: 10));
+      }
+    }
+  }
+
   // ------------------------------------------------------------ phones
 
   /// A code (shown as a QR) that pairs a phone with this Mac: a one-time

@@ -75,7 +75,48 @@ relayd seals everything else: `{t: "sealed", e: base64url(envelope)}`. The envel
 
 Polling at the sync interval goes on regardless, so a dropped socket only delays things. relayd reconnects with backoff from 1 to 60 s. On close code 4001 it syncs, which picks up the new key or learns it was removed, then reconnects.
 
-## 5. Tests
+## 5. Phones (M8)
+
+**Pairing.** On the Mac, Settings → Team → Pair iPhone (`sync.pairPhone`) makes a code, shown as a QR:
+
+- the code is `relay-pair:` + base64url(`{id, k, mac, macName, person, invite}`);
+- `invite` is an ordinary one-time team invite;
+- `k` is a fresh 32-byte pairing key that only the Mac (`secrets.json` → `companions`) and the phone (`pairing`) keep.
+
+The phone joins the team with the invite. It publishes its device record with `kind: phone` and `companionOf: <mac>`. Your phone counts as you:
+
+- work it queues runs on the Mac without the sharing switch;
+- its notifications are the Mac's.
+
+**Commands.** The phone has no agents. To act, it asks its Mac in the room:
+
+- `{t: "cmd", to, id, pair, body, mac}`, where `body` is `{method, params}` and `mac` is HMAC-SHA256(k, `id|body`);
+- the Mac runs the method through its own API and answers `{t: "ack", id, ok, result | error}`.
+
+A teammate holds the team key but not `k`, so it can't pass for your phone. Allowed methods:
+
+- `permissions.answer`
+- `comments.post` (answers to agents' questions)
+- `runs.start` / `steer` / `stop` / `pause` / `resume`
+- `agents.update`
+
+Everything else syncs as data. If the Mac isn't in the room, the phone says so at once.
+
+**Push.** The team's own APNs key (a `.p8` from developer.apple.com) goes into the Durable Object, either with `POST /v1/push/config` from Settings → Team → iPhone push or with `relay team push-setup`. It never comes back out.
+
+- The phone registers its device token with `POST /v1/push/register {device, token, sandbox}`.
+- When relayd has a notification (an agent asks, work is ready, a mention) and a paired phone isn't in the room, it calls `POST /v1/push {to, title, body, data}`.
+- The Worker signs an ES256 provider token (kept for 50 min) and posts to APNs. It forgets tokens Apple reports as gone (410).
+- The text passes through Apple. With **Show task names** off (`pushPreview: false`), it is generic ("An agent needs you").
+
+| Request | Does |
+|---|---|
+| `POST /v1/push/config` | `{keyId, teamId, bundleId, p8}` |
+| `GET /v1/push/config` | `{configured, keyId, bundleId, devices}` (never the key) |
+| `POST /v1/push/register` | `{device, token, sandbox}` |
+| `POST /v1/push` | `{to, title, body, data}` → APNs; 501 when push isn't set up |
+
+## 6. Tests
 
 - `worker/test/worker.test.mjs` runs on Miniflare. It covers setup, auth, conditional writes, `start-after`, invites, the epoch switch with socket close, relay and presence.
 - `relay_sync/test/worker_test.dart`:
@@ -87,6 +128,15 @@ Polling at the sync interval goes on regardless, so a dropped socket only delays
   - a fake Cloudflare API and a fresh account;
   - redeploys keep the migration;
   - a bad token says what it needs.
+- `worker/test/push.test.mjs`: a fake APNs verifies the ES256 signature with the key's public half, and checks the topic and payload. It also covers config validation, registration, and forgetting a token Apple reports as gone.
+- `relay_daemon/test/mobile_test.dart` uses a Worker, a Mac relayd and a phone host:
+  - pairing; the board and the Mac's agents reach the phone;
+  - a task queued on the phone runs on the Mac;
+  - the run streams to the phone, the phone allows the permission, and the task reaches review;
+  - comments go through the Mac;
+  - a wrong pairing key is refused;
+  - push reaches a fake APNs while the phone is away;
+  - commands report an offline Mac.
 - `relay_daemon/test/live_test.dart`: two relayds.
   - A change arrives by poke with polling set to an hour.
   - A run step reaches the teammate within a second.

@@ -54,6 +54,8 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `term.input / resize / close` | `{termId, text \| data(base64)}` / `{termId, cols, rows}` / `{termId}` | true |
 | `term.takeover` | `{runId}` | pauses the agent and opens a shell in its workspace |
 | `sync.status / test / createTeam / invite / join / now / revoke / leave` | see [format/sync.md §6](format/sync.md#6-api-relayd) | team sync; status adds `live`, `online` (device ids in the Worker room) |
+| `sync.pairPhone / pair` | — / `{code}` | `{code, macName}` / status (phone joins as the Mac's companion) |
+| `push.config / status / register` | `{keyId, teamId, bundleId?, p8}` / — / `{token, sandbox}` (phone) | phone push through the team Worker ([format/worker.md §5](format/worker.md#5-phones-m8)) |
 | `devices.list` | — | team device records (name, person, agents, `shareAgents`, `lastSeen`) |
 | `channels.list` | — | channels with `unread` and `lastAt` (`#general` and one per project exist by default) |
 | `channels.create / update / read / pin` | `{name, projectId?, topic?}` / `{id, fields}` / `{channelId}` / `{channelId, messageId, on?}` | channel / true |
