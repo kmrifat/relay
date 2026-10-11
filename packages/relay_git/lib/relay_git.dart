@@ -1,8 +1,5 @@
-/// Support for doing something awesome.
-///
-/// More dartdocs go here.
+/// Relay git: a wrapper over the git CLI and a commit-graph layout.
 library;
 
-export 'src/relay_git_base.dart';
-
-// TODO: Export any libraries intended for clients of this package.
+export 'src/git.dart';
+export 'src/graph.dart';
