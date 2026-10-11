@@ -119,7 +119,11 @@ void main() {
     expect(find.text('shared'), findsWidgets);
     expect(find.text('Approve & merge'), findsOneWidget);
 
+    // A click peeks at the card beside the board; Open goes to the task.
     await tester.tap(find.text('Share a recipe with a link'));
+    await tester.pumpAndSettle();
+    expect(find.text('KT-1 · Review · QA · shared, api, app'), findsOneWidget);
+    await tester.tap(find.text('Open'));
     await settleUntil(tester, find.text('Done. Wrote the share link.'));
     expect(find.text('KT-1 · Share a recipe with a link'), findsOneWidget);
     expect(find.text('Change set'), findsOneWidget);

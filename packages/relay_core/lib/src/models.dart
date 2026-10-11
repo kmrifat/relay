@@ -164,11 +164,12 @@ abstract final class TaskStatus {
 
   static const columns = [backlog, queued, running, review, done];
 
+  /// How the board names them (design P03); the stored values stay.
   static String label(String s) => switch (s) {
     backlog => 'Backlog',
-    queued => 'Queued',
-    running => 'Running',
-    review => 'Review',
+    queued => 'Ready',
+    running => 'In progress',
+    review => 'Review · QA',
     done => 'Done',
     _ => s,
   };
