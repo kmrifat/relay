@@ -213,7 +213,7 @@ class _ProductCard extends ConsumerWidget {
               ),
             ),
             const SizedBox(width: 8),
-            Text([for (final s in TaskStatus.columns) '${counts[s]} ${TaskStatus.label(s).toLowerCase()}'].join(' · '), style: context.t(11, color: hover ? c.text : c.text2)),
+            Text([for (final s in TaskStatus.columns) '${counts[s]} ${_short[s]}'].join(' · '), style: context.t(11, color: hover ? c.text : c.text2)),
           ]),
         ),
       ]),
@@ -736,6 +736,15 @@ class _Stat extends StatelessWidget {
     ]),
   );
 }
+
+/// Column names for the one-line board summary.
+const _short = {
+  TaskStatus.backlog: 'backlog',
+  TaskStatus.queued: 'ready',
+  TaskStatus.running: 'in progress',
+  TaskStatus.review: 'in review',
+  TaskStatus.done: 'done',
+};
 
 bool _today(DateTime? t) {
   if (t == null) return false;

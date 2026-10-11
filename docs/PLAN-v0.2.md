@@ -15,6 +15,21 @@ v0.1 can run agents on many tasks. v0.2 aims to make it pleasant to run **severa
 | P05 · Ask an agent (⌘J) | Ask any agent from anywhere, with the same options, plus "continue" shortcuts (steer a live run, answer a question) |
 | P06 · Keyboard map + splits | The full shortcut scheme, and resizable panes everywhere |
 
+## Status (2026-10-12)
+
+All six milestones are built on branch `v0.2-agent-teams`, one commit each, and tracked in Relay itself as RL-1 to RL-29 (project RL), all in Review. Every package's tests and the app's widget tests pass.
+
+| Milestone | State | Notes |
+|---|---|---|
+| M11 Keyboard, focus, splits | ✅ | `app/commands.dart` (HardwareKeyboard handler), `app/menus.dart` (macOS menu bar), `ui/split.dart`; keyboard map on `?` / ⌘/ |
+| M12 Model and effort | ✅ | Claude `--effort` checked on 2.1.278. Codex's `model_reasoning_effort` and the generic `{model}` / `{effort}` flags are from their docs and aren't checked: Codex isn't installed, and OpenCode can't start in the sandbox |
+| M13 Roles and teams | ✅ | Role agents run on a CLI runtime; teams and templates; team page (P02). Teams stay local (decision 2 below is still open) |
+| M14 Working together | ✅ | Mailbox, plans, handoffs, PM-first questions, limits, `relay tool`, Codex MCP via `-c`. Covered with the demo agent; not yet with live Claude runs |
+| M15 Mission control | ✅ | ⌘0 opens it; the app still starts on the first project's board (decision 4 below) |
+| M16 Board v2 | ✅ | Peek, filters, epic lanes, folding Done, reorder, new status names |
+
+**Not done yet:** scheduled team rules (e.g. a nightly suite), spend-aware model step-down, the review loop on diff lines, and the other items in section 4. A first live dogfood run with a real Claude Code squad is still to do.
+
 ---
 
 ## 1. What's wrong today (audit)
