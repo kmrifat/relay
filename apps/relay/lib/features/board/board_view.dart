@@ -159,11 +159,13 @@ class TaskCard extends ConsumerWidget {
             const SizedBox(height: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(2),
+              // Static, not indeterminate: an animated bar per running card
+              // would repaint the board every frame (docs/perf.md).
               child: LinearProgressIndicator(
                 minHeight: 3,
-                value: run?.status == RunStatus.paused || run?.status == RunStatus.waiting ? 0.5 : null,
+                value: _progress(t, run),
                 backgroundColor: c.inner,
-                color: c.success,
+                color: run?.status == RunStatus.waiting || run?.status == RunStatus.paused ? c.warning : c.success,
               ),
             ),
             const SizedBox(height: 7),
@@ -221,4 +223,15 @@ class TaskCard extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// How far along a running task is: pipeline step, else tool calls so far.
+double _progress(Task t, Run? run) {
+  final steps = t.pipeline;
+  if (steps.isNotEmpty) {
+    final done = steps.where((s) => s.status == 'done').length;
+    return ((done + 0.5) / steps.length).clamp(0.05, 0.95);
+  }
+  final tools = run?.toolCalls ?? 0;
+  return (0.1 + tools * 0.08).clamp(0.1, 0.9);
 }

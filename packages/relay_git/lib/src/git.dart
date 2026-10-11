@@ -172,6 +172,13 @@ class Git {
     return Worktree(path, branch, head);
   }
 
+  /// A detached worktree at [ref], for reading another repo's code without
+  /// touching the user's checkout.
+  Future<void> worktreeAddDetached(String repo, String path, String ref) async {
+    Directory(p.dirname(path)).createSync(recursive: true);
+    await run(repo, ['worktree', 'add', '--detach', path, ref]);
+  }
+
   Future<void> worktreeRemove(String repo, String path, {bool force = false}) async {
     await run(repo, ['worktree', 'remove', if (force) '--force', path], allowFail: true);
     await run(repo, ['worktree', 'prune'], allowFail: true);

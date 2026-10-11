@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:relay_agents/relay_agents.dart' show ShellEnv;
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_git/relay_git.dart';
 import 'package:relay_protocol/relay_protocol.dart';
@@ -11,11 +12,15 @@ import 'context.dart';
 /// repo the task changes (all on the same branch), read-only links to the
 /// project's other repos, and PROJECT.md describing how they fit together.
 ///
+/// The other repos are detached worktrees at their base branch with write
+/// permission removed: agents can read them, but not change them or the
+/// user's own checkout.
+///
 /// ```text
 ///   RELAY_HOME/workspaces/PROJECT_KEY/BRANCH/
 ///     shared/   worktree on BRANCH
 ///     api/      worktree on BRANCH
-///     admin  -> link to the main checkout (read-only by convention)
+///     admin/    read-only snapshot of the base branch
 ///     PROJECT.md
 /// ```
 class Workspaces {
@@ -47,17 +52,29 @@ class Workspaces {
         if (source == null || !await ctx.git.isRepo(source)) {
           throw RpcError(RpcError.invalidParams, '${repo.name} is not cloned on this Mac.');
         }
-        final link = Link(target);
-        if (link.existsSync()) link.deleteSync();
+        // A read-only snapshot from before the task touched this repo.
+        if (Directory(target).existsSync() && await ctx.git.currentBranch(target) == null) {
+          await _removeSnapshot(source, target);
+        }
         await ctx.git.worktreeAdd(source, target, branch, base: repo.baseBranch);
         _ensureChange(task, repo, branch, target);
-      } else if (source != null && Directory(source).existsSync()) {
-        final link = Link(target);
-        if (!link.existsSync() && !Directory(target).existsSync()) link.createSync(source);
+      } else if (source != null && await ctx.git.isRepo(source) && !Directory(target).existsSync()) {
+        try {
+          await ctx.git.worktreeAddDetached(source, target, repo.baseBranch);
+          await Process.run('chmod', ['-R', 'a-w', target]);
+        } catch (e) {
+          ctx.notice('Could not make a read-only copy of ${repo.name}: $e', level: 'warning');
+        }
       }
     }
     File(p.join(folder, 'PROJECT.md')).writeAsStringSync(projectMap(task));
     return touched.length == 1 ? p.join(folder, _dirName(touched.first)) : folder;
+  }
+
+  Future<void> _removeSnapshot(String source, String target) async {
+    await Process.run('chmod', ['-R', 'u+w', target]);
+    await ctx.git.worktreeRemove(source, target, force: true);
+    if (Directory(target).existsSync()) Directory(target).deleteSync(recursive: true);
   }
 
   String _dirName(Repo r) => r.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '-');
@@ -99,7 +116,7 @@ class Workspaces {
     for (final r in all) {
       final deps = r.dependsOn.map((d) => byId[d]?.name ?? d).join(', ');
       b.writeln('| `${_dirName(r)}/` | ${r.role} | ${r.stack} | ${r.baseBranch} | '
-          '${touched.contains(r.id) ? 'yes' : 'no (read-only link)'} | $deps | ${r.testCommand ?? ''} |');
+          '${touched.contains(r.id) ? 'yes' : 'no (read-only snapshot)'} | $deps | ${r.testCommand ?? ''} |');
     }
     final contracts = all.where((r) => r.contractPaths.isNotEmpty).toList();
     if (contracts.isNotEmpty) {
@@ -259,16 +276,62 @@ class Workspaces {
     return results;
   }
 
+  /// Pushes each ready change to its repo's remote and opens a pull request
+  /// with the GitHub CLI when it is installed (else returns a compare link).
+  Future<List<Map<String, Object?>>> push(Task task, {String? repoId}) async {
+    final project = ctx.project(task.projectId);
+    final key = task.displayKey(project.key);
+    final results = <Map<String, Object?>>[];
+    final gh = whichOnPath('gh', ctx.env['PATH'] ?? '');
+    for (final c in changesOf(task.id)) {
+      if (repoId != null && c.repoId != repoId) continue;
+      if (c.status == 'merged' || c.worktreePath == null) continue;
+      final repo = ctx.store.get<Repo>(Kind.repo, c.repoId);
+      if (repo == null) continue;
+      final remote = await ctx.git.remoteUrl(c.worktreePath!);
+      if (remote == null) {
+        results.add({'repo': repo.name, 'ok': false, 'error': '${repo.name} has no remote'});
+        continue;
+      }
+      try {
+        await ctx.git.run(c.worktreePath!, ['push', '-u', 'origin', c.branch]);
+      } on GitException catch (e) {
+        results.add({'repo': repo.name, 'ok': false, 'error': e.stderr.trim()});
+        continue;
+      }
+      String? url = c.prUrl;
+      if (url == null && gh != null && remote.contains('github.com')) {
+        final body = 'Part of $key in Relay: ${task.title}\n\n${task.brief}\n\n'
+            'Merge order: ${mergeSteps(ctx.reposOf(task.projectId)).map((s) => s.map((r) => r.name).join(', ')).join(' → ')}';
+        final r = await Process.run(gh, ['pr', 'create', '--head', c.branch, '--base', repo.baseBranch, '--title', '$key: ${task.title}', '--body', body],
+            workingDirectory: c.worktreePath, environment: ctx.env);
+        final out = '${r.stdout}'.trim();
+        if (r.exitCode == 0 && out.startsWith('http')) url = out.split('\n').last;
+      }
+      url ??= _compareUrl(remote, repo.baseBranch, c.branch);
+      ctx.store.patch<ChangeEntry>(Kind.change, c.id, {'prUrl': ?url, 'pushedAt': DateTime.now().toUtc().toIso8601String()});
+      results.add({'repo': repo.name, 'ok': true, 'url': url});
+    }
+    return results;
+  }
+
+  static String? _compareUrl(String remote, String base, String branch) {
+    final m = RegExp(r'github\.com[:/]([^/]+)/([^/]+?)(\.git)?$').firstMatch(remote);
+    if (m == null) return null;
+    return 'https://github.com/${m.group(1)}/${m.group(2)}/compare/$base...$branch?expand=1';
+  }
+
   /// Removes the task's worktrees and folder (after merge or on request).
   Future<void> cleanup(Task task) async {
-    for (final c in changesOf(task.id)) {
-      final repo = ctx.store.get<Repo>(Kind.repo, c.repoId);
-      final source = repo?.pathOn(ctx.deviceId);
-      if (source != null && c.worktreePath != null) {
-        await ctx.git.worktreeRemove(source, c.worktreePath!, force: true);
-      }
+    final folder = folderFor(task);
+    if (Directory(folder).existsSync()) await Process.run('chmod', ['-R', 'u+w', folder]);
+    for (final repo in ctx.reposOf(task.projectId)) {
+      final source = repo.pathOn(ctx.deviceId);
+      if (source != null) await ctx.git.worktreeRemove(source, p.join(folder, _dirName(repo)), force: true);
     }
-    final dir = Directory(folderFor(task));
+    final dir = Directory(folder);
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   }
 }
+
+String? whichOnPath(String name, String path) => ShellEnv.which(name, path);

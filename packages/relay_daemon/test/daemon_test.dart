@@ -6,6 +6,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:relay_core/relay_core.dart';
 import 'package:relay_daemon/relay_daemon.dart';
 import 'package:relay_git/relay_git.dart';
 import 'package:relay_protocol/relay_protocol.dart';
@@ -158,7 +159,10 @@ void main() {
     // Workspace: worktrees for api + app on kt-1, read-only links for the rest, PROJECT.md.
     final ws = detail['workspace'] as String;
     expect(File(p.join(ws, 'PROJECT.md')).readAsStringSync(), contains('Merge order'));
-    expect(FileSystemEntity.isLinkSync(p.join(ws, 'shared')), isTrue);
+    // Untouched repos are read-only snapshots, not links to the user's checkout.
+    expect(Directory(p.join(ws, 'shared')).existsSync(), isTrue);
+    expect(FileSystemEntity.isLinkSync(p.join(ws, 'shared')), isFalse);
+    expect(() => File(p.join(ws, 'admin', 'package.json')).writeAsStringSync('x'), throwsA(isA<FileSystemException>()));
     expect(File(p.join(ws, 'api', '.git')).existsSync(), isTrue);
     expect(await Git().currentBranch(p.join(ws, 'app')), 'kt-1');
     expect(File(p.join(ws, 'api', 'RELAY_DEMO.md')).existsSync(), isTrue);
@@ -208,6 +212,59 @@ void main() {
     expect(note['body'], contains('openapi.yaml'));
     expect(note['body'], contains('api'));
     await client.call(M.settingsSet, {'values': {'askBeforeShell': 'true'}});
+  });
+
+  test('push: a ready change goes to the remote on its branch', () async {
+    final pid = (await client.list(M.projectsList)).first['id'];
+    final repos = await client.list(M.reposList, {'projectId': pid});
+    final api = repos.firstWhere((r) => r['name'] == 'api');
+    final bare = Directory.systemTemp.createTempSync('relay_remote_').path;
+    await Git().run(bare, ['init', '-q', '--bare']);
+    await Git().run(api['localPath'] as String, ['remote', 'add', 'origin', bare]);
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
+    final task = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Push me', 'assigneeKind': 'agent', 'assignee': 'demo', 'repoIds': [api['id']], 'status': 'queued'},
+    });
+    await waitFor(() async {
+      final t = (await client.map(M.tasksGet, {'id': task['id']}))['task'] as Map;
+      return t['status'] == 'review' ? t : null;
+    });
+    final res = await client.list(M.changesPush, {'taskId': task['id']});
+    expect(res.single['ok'], isTrue, reason: '${res.single}');
+    final branches = await Git().run(bare, ['branch', '--format=%(refname:short)']);
+    expect(branches, contains('kt-${task['number']}'));
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'true'}});
+  });
+
+  test('time limit stops a run; a spend cap keeps an agent from starting', () async {
+    final pid = (await client.list(M.projectsList)).first['id'];
+    final repos = await client.list(M.reposList, {'projectId': pid});
+    final app = repos.firstWhere((r) => r['name'] == 'app');
+    // The demo agent waits on its permission request, so the run would hang.
+    final slow = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Too slow', 'assigneeKind': 'agent', 'assignee': 'demo', 'repoIds': [app['id']], 'status': 'queued', 'stopAfterSeconds': 2},
+    });
+    final stopped = await waitFor(() async {
+      final runs = (await client.map(M.tasksGet, {'id': slow['id']}))['runs'] as List;
+      return runs.isNotEmpty && (runs.last as Map)['status'] == 'stopped' ? runs.last : null;
+    }, timeout: const Duration(seconds: 30));
+    expect(stopped, isNotNull);
+
+    // Pretend the demo agent already spent $1 today, against a $0.50 cap.
+    daemon.ctx.store.create<Run>(Kind.run, {'taskId': slow['id'], 'agentId': 'demo', 'status': 'done', 'startedAt': DateTime.now().toUtc().toIso8601String(), 'costUsd': 1.0});
+    await client.call(M.agentsUpdate, {'id': 'demo', 'fields': {'dailyCapUsd': 0.5}});
+    final capped = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Over budget', 'assigneeKind': 'agent', 'assignee': 'demo', 'status': 'queued'},
+    });
+    await daemon.supervisor.tick();
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    final t = (await client.map(M.tasksGet, {'id': capped['id']}))['task'] as Map;
+    expect(t['status'], 'queued');
+    await client.call(M.agentsUpdate, {'id': 'demo', 'fields': {'dailyCapUsd': 0}});
+    await client.call(M.tasksMove, {'id': capped['id'], 'status': 'backlog'});
   });
 
   test('terminal: open a shell in a repo and read its output', () async {

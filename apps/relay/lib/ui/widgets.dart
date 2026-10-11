@@ -141,7 +141,10 @@ class _BtnState extends State<Btn> {
             child: Row(mainAxisSize: MainAxisSize.min, children: [
               if (widget.icon != null) ...[Icon(widget.icon, size: widget.small ? 11 : 13, color: fg), if (widget.label.isNotEmpty) const SizedBox(width: 6)],
               if (widget.label.isNotEmpty)
-                Text(widget.label, style: context.t(widget.small ? 11 : 12, w: widget.kind == BtnKind.primary ? FontWeight.w600 : FontWeight.w400, color: fg)),
+                Flexible(
+                  child: Text(widget.label, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: context.t(widget.small ? 11 : 12, w: widget.kind == BtnKind.primary ? FontWeight.w600 : FontWeight.w400, color: fg)),
+                ),
             ]),
           ),
         ),
@@ -262,6 +265,9 @@ class FieldInput extends StatelessWidget {
       minLines: minLines,
       style: context.t(size, family: mono ? mono_ : null),
       cursorWidth: 1.5,
+      // The default fading caret on Apple platforms repaints every frame
+      // while a field has focus (docs/perf.md). A plain blink is enough.
+      cursorOpacityAnimates: false,
       decoration: InputDecoration(
         isDense: true,
         hintText: hint,

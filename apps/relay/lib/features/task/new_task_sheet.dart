@@ -11,7 +11,7 @@ import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
 
-Future<void> showNewTaskSheet(BuildContext context, WidgetRef ref, {String? status}) async {
+Future<void> showNewTaskSheet(BuildContext context, WidgetRef ref, {String? status, String? brief}) async {
   final data = ref.read(dataProvider);
   if (data.projects.isEmpty) return;
   final nav = ref.read(navProvider);
@@ -21,7 +21,7 @@ Future<void> showNewTaskSheet(BuildContext context, WidgetRef ref, {String? stat
     barrierColor: Colors.black54,
     builder: (_) => Align(
       alignment: Alignment.topCenter,
-      child: Padding(padding: const EdgeInsets.only(top: 52), child: _NewTask(projectId: projectId, initialStatus: status, repoFilter: nav.repoFilter)),
+      child: Padding(padding: const EdgeInsets.only(top: 52), child: _NewTask(projectId: projectId, initialStatus: status, repoFilter: nav.repoFilter, initialBrief: brief)),
     ),
   );
 }
@@ -35,8 +35,9 @@ class _Step {
 }
 
 class _NewTask extends ConsumerStatefulWidget {
-  const _NewTask({required this.projectId, this.initialStatus, this.repoFilter});
+  const _NewTask({required this.projectId, this.initialStatus, this.repoFilter, this.initialBrief});
   final String projectId;
+  final String? initialBrief;
   final String? initialStatus;
   final String? repoFilter;
   @override
@@ -46,7 +47,7 @@ class _NewTask extends ConsumerStatefulWidget {
 class _NewTaskState extends ConsumerState<_NewTask> {
   late String projectId = widget.projectId;
   final title = TextEditingController();
-  final brief = TextEditingController();
+  late final brief = TextEditingController(text: widget.initialBrief ?? '');
   final tags = TextEditingController();
   late Set<String> repoIds = {?widget.repoFilter};
   List<Map<String, Object?>> suggestions = [];
@@ -54,6 +55,7 @@ class _NewTaskState extends ConsumerState<_NewTask> {
   bool pipeline = false;
   late List<_Step> steps;
   String start = 'slot'; // now | slot | tonight | backlog
+  int stopAfter = 0; // minutes, 0 = no limit
   String? error;
   Timer? _debounce;
 
@@ -105,6 +107,7 @@ class _NewTaskState extends ConsumerState<_NewTask> {
       'tags': tags.text.split(RegExp(r'[,\s]+')).map((s) => s.replaceFirst('#', '')).where((s) => s.isNotEmpty).toList(),
       'status': start == 'backlog' ? TaskStatus.backlog : TaskStatus.queued,
       'startAt': switch (start) { 'tonight' => tonight.toUtc().toIso8601String(), 'now' => 'now', _ => 'slot' },
+      if (stopAfter > 0) 'stopAfterMinutes': stopAfter,
       if (pipeline)
         'pipeline': [for (final s in steps) {'name': s.name, 'assigneeKind': s.kind, 'assignee': s.assignee, 'note': s.note, 'status': 'pending'}]
       else if (assignee == 'me')
@@ -254,6 +257,13 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                     Text(label, style: context.t(13)),
                   ]),
                 ),
+            ])),
+            row('Stop after', Row(children: [
+              IconBtn(LucideIcons.minus, size: 12, onTap: stopAfter > 0 ? () => setState(() => stopAfter = stopAfter <= 15 ? 0 : stopAfter - 15) : null),
+              SizedBox(width: 70, child: Text(stopAfter == 0 ? 'No limit' : '$stopAfter min', textAlign: TextAlign.center, style: context.t(12, w: FontWeight.w600))),
+              IconBtn(LucideIcons.plus, size: 12, onTap: () => setState(() => stopAfter += 15)),
+              const SizedBox(width: 8),
+              Expanded(child: Text('per run, so a stuck agent doesn\'t burn your plan', style: context.t(11, color: c.text3))),
             ])),
             if (error != null) Text(error!, style: context.t(12, color: c.danger)),
             const SizedBox(height: 6),

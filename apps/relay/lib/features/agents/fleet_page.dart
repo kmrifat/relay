@@ -213,6 +213,13 @@ class _AgentCard extends ConsumerWidget {
           IconBtn(LucideIcons.minus, size: 12, onTap: a.slots > 1 ? () => update({'slots': a.slots - 1}) : null),
           IconBtn(LucideIcons.plus, size: 12, onTap: () => update({'slots': a.slots + 1})),
         ]),
+        const SizedBox(height: 8),
+        Row(children: [
+          SizedBox(width: 76, child: Text('Daily cap', style: context.t(12, color: c.text2))),
+          Expanded(child: Text(a.dailyCapUsd == 0 ? 'None (subscription limits apply)' : '\$${a.dailyCapUsd.toStringAsFixed(0)} of API spend', style: context.t(12))),
+          IconBtn(LucideIcons.minus, size: 12, onTap: a.dailyCapUsd > 0 ? () => update({'dailyCapUsd': (a.dailyCapUsd - 5).clamp(0, 1000)}) : null),
+          IconBtn(LucideIcons.plus, size: 12, onTap: () => update({'dailyCapUsd': a.dailyCapUsd + 5})),
+        ]),
         if (a.goodAt.isNotEmpty) ...[
           const SizedBox(height: 8),
           Row(children: [

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:relay_core/relay_core.dart';
@@ -74,7 +75,25 @@ class _TaskListViewState extends ConsumerState<TaskListView> {
       }
     }
 
-    return Column(children: [
+    final visible = <Task>[
+      for (final s in order)
+        if (!collapsed.contains(s)) ...(tasks.where((t) => t.status == s).toList()..sort((a, b) => b.updatedAt.compareTo(a.updatedAt))),
+    ];
+    void move(int d) {
+      if (visible.isEmpty) return;
+      final i = visible.indexWhere((t) => t.id == selected);
+      setState(() => selected = visible[(i + d).clamp(0, visible.length - 1)].id);
+    }
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.arrowDown): () => move(1),
+        const SingleActivator(LogicalKeyboardKey.arrowUp): () => move(-1),
+        const SingleActivator(LogicalKeyboardKey.enter): () {
+          if (selected != null) ref.read(navProvider.notifier).openTask(selected!);
+        },
+      },
+      child: Focus(autofocus: true, child: Column(children: [
       if (widget.showFilters)
         Container(
           height: 36,
@@ -114,7 +133,7 @@ class _TaskListViewState extends ConsumerState<TaskListView> {
             ? Center(child: Text('No tasks here.', style: context.t(13, color: c.text2)))
             : ListView(children: rows),
       ),
-    ]);
+    ])));
   }
 }
 
@@ -142,7 +161,7 @@ class _Row extends ConsumerWidget {
     final attention = t.data['attention'] as String?;
     if (run != null) {
       status = Row(children: [
-        SizedBox(width: 44, child: ClipRRect(borderRadius: BorderRadius.circular(2), child: LinearProgressIndicator(minHeight: 4, backgroundColor: selected ? Colors.white30 : c.inner, color: selected ? Colors.white : c.success))),
+        SizedBox(width: 44, child: ClipRRect(borderRadius: BorderRadius.circular(2), child: LinearProgressIndicator(minHeight: 4, value: (0.1 + run.toolCalls * 0.08).clamp(0.1, 0.9), backgroundColor: selected ? Colors.white30 : c.inner, color: selected ? Colors.white : c.success))),
         const SizedBox(width: 6),
         Text('Live ${elapsed(run.startedAt)}', style: context.t(11, color: selected ? Colors.white : c.success)),
       ]);

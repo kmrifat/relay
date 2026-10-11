@@ -47,7 +47,9 @@ Future<int> runDemoAgent(List<String> args) async {
   // Repos it may change: subfolders that are git worktrees (not links), or cwd itself.
   final targets = <String>[];
   for (final e in Directory(cwd).listSync(followLinks: false)) {
-    if (e is Directory && File('${e.path}/.git').existsSync()) targets.add(e.path);
+    // Repos this task may change are writable worktrees; the rest are
+    // read-only snapshots.
+    if (e is Directory && File('${e.path}/.git').existsSync() && e.statSync().mode & 0x80 != 0) targets.add(e.path);
   }
   if (targets.isEmpty) targets.add(cwd);
 

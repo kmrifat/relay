@@ -55,6 +55,7 @@ abstract final class M {
 
   static const changesList = 'changes.list';
   static const changesMerge = 'changes.merge';
+  static const changesPush = 'changes.push';
 
   static const gitLog = 'git.log';
   static const gitShow = 'git.show';

@@ -1,0 +1,34 @@
+name: checks
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  packages:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: tool/build_pty.sh
+      - name: Analyze and test each package
+        run: |
+          for p in packages/*; do
+            echo "::group::$p"
+            (cd "$p" && dart analyze --fatal-infos && dart test) || exit 1
+            echo "::endgroup::"
+          done
+
+  app:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: cd apps/relay && flutter analyze && flutter test
+      - run: cd apps/relay && flutter build macos --debug

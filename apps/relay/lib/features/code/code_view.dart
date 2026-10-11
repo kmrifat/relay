@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -29,6 +31,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../task/new_task_sheet.dart';
 import 'terminal_panel.dart';
 
 /// A folder Relay can open: a repo's own checkout or a task's worktree.
@@ -50,6 +53,11 @@ List<CodeRoot> codeRoots(DataSnapshot data, String projectId) {
     if (path != null) roots.add(CodeRoot('${r.name} · ${r.baseBranch}', path, color: r.color));
   }
   for (final t in data.tasksOf(projectId)) {
+    final changes = data.changesOf(t.id).where((ch) => ch.worktreePath != null && ch.status != 'merged').toList();
+    if (repos.length > 1 && changes.isNotEmpty) {
+      roots.add(CodeRoot('${data.keyOf(t)} · workspace (all repos)', p.dirname(changes.first.worktreePath!),
+          agentId: changes.first.agentId, taskId: t.id, runId: data.activeRun(t)?.id));
+    }
     for (final ch in data.changesOf(t.id)) {
       if (ch.worktreePath == null || ch.status == 'merged') continue;
       final repo = data.get<Repo>(Kind.repo, ch.repoId);
@@ -185,6 +193,20 @@ class _CodeViewState extends ConsumerState<CodeView> {
               padding: const EdgeInsets.fromLTRB(14, 0, 8, 4),
               child: Row(children: [
                 Expanded(child: Text('EXPLORER', style: context.label)),
+                Builder(builder: (context) => IconBtn(LucideIcons.externalLink, size: 12, tooltip: 'Open in…', onTap: root == null ? null : () async {
+                  final box = context.findRenderObject() as RenderBox;
+                  final app = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
+                    ('Visual Studio Code', 'VS Code', null),
+                    ('Cursor', 'Cursor', null),
+                    ('Zed', 'Zed', null),
+                    ('Finder', 'Finder', null),
+                  ]);
+                  if (app == null) return;
+                  final r = await Process.run('open', [if (app != 'Finder') ...['-a', app], root!.path]);
+                  if (r.exitCode != 0 && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$app is not installed')));
+                  }
+                })),
                 IconBtn(LucideIcons.refreshCw, size: 12, tooltip: 'Refresh', onTap: root == null ? null : () => pick(root!)),
               ]),
             ),
@@ -229,6 +251,16 @@ class _CodeViewState extends ConsumerState<CodeView> {
                 Expanded(child: Text(active < 0 ? '' : open[active].path.split('/').join(' › '), style: context.t(11, color: c.text2))),
                 if (active >= 0 && status[open[active].path] != null)
                   Text(status[open[active].path] == 'U' ? 'new file' : 'changed on this branch', style: context.t(11, color: c.text2)),
+                if (active >= 0) ...[
+                  const SizedBox(width: 10),
+                  Btn('New task from selection', small: true, kind: BtnKind.plain, icon: LucideIcons.plus, onTap: () {
+                    final f = open[active];
+                    final sel = f.controller.selectedText;
+                    final line = f.controller.selection.startIndex + 1;
+                    final snippet = sel.isEmpty ? '' : '\n\n```\n${sel.length > 2000 ? sel.substring(0, 2000) : sel}\n```';
+                    showNewTaskSheet(context, ref, brief: 'In `${f.path}` around line $line:$snippet\n\n');
+                  }),
+                ],
               ]),
             ),
             Expanded(

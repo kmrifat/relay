@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -415,6 +417,23 @@ class _ChangeSet extends ConsumerWidget {
             child: Row(children: [
               Expanded(child: Text('${ch.branch} · ${ch.filesChanged} file${ch.filesChanged == 1 ? '' : 's'}', style: context.t(11, family: mono, color: c.text3))),
               Btn('Diff', small: true, icon: LucideIcons.gitCompare, onTap: () => showDiffDialog(context, ref, ch, repo)),
+              const SizedBox(width: 6),
+              if (ch.prUrl != null)
+                Btn('Open PR', small: true, icon: LucideIcons.externalLink, onTap: () => Process.run('open', [ch.prUrl!]))
+              else if (repo?.remoteUrl != null && ch.status == 'ready')
+                Btn('Push', small: true, icon: LucideIcons.upload, onTap: () async {
+                  try {
+                    final res = await ref.read(clientProvider).list(M.changesPush, {'taskId': ch.taskId, 'repoId': ch.repoId});
+                    if (!context.mounted || res.isEmpty) return;
+                    if (res.first['ok'] != true) {
+                      showError(context, '${res.first['error']}');
+                    } else if (res.first['url'] != null) {
+                      await Process.run('open', [res.first['url'] as String]);
+                    }
+                  } on RpcError catch (e) {
+                    if (context.mounted) showError(context, e.message);
+                  }
+                }),
               if (ch.status == 'ready') ...[
                 const SizedBox(width: 6),
                 Btn('Merge ${repo?.name ?? ''}', small: true, onTap: () async {

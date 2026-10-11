@@ -20,6 +20,7 @@ class Supervisor {
   final DaemonContext ctx;
   final Workspaces workspaces;
   final _sessions = <String, AgentSession>{}; // runId → session
+  final _deadlines = <String, Timer>{}; // runId → stop-after timer
   Timer? _timer;
   bool _ticking = false;
 
@@ -30,6 +31,9 @@ class Supervisor {
 
   Future<void> dispose() async {
     _timer?.cancel();
+    for (final t in _deadlines.values) {
+      t.cancel();
+    }
     for (final s in _sessions.values.toList()) {
       await s.stop();
     }
@@ -104,6 +108,10 @@ class Supervisor {
   }
 
   bool _limited(AgentProfile a) {
+    if (a.dailyCapUsd > 0) {
+      final spent = (usageToday()[a.id]?['costUsd'] as double?) ?? 0;
+      if (spent >= a.dailyCapUsd) return true;
+    }
     final until = a.limitedUntil;
     if (until == null) return false;
     if (until.isBefore(DateTime.now())) {
@@ -226,6 +234,16 @@ class Supervisor {
       rethrow;
     }
     _sessions[run.id] = session;
+    final limitSecs = task.intOr('stopAfterSeconds', task.intOr('stopAfterMinutes', 0) * 60);
+    final limit = (limitSecs / 60).ceil();
+    if (limitSecs > 0) {
+      _deadlines[run.id] = Timer(Duration(seconds: limitSecs), () async {
+        if (!_sessions.containsKey(run.id)) return;
+        ctx.store.appendEvent(run.id, RunEventType.status, {'status': 'stopped', 'detail': 'Stopped after $limit minutes (the task\'s time limit)'});
+        ctx.notice('${ctx.taskKey(task)} hit its $limit-minute limit and was stopped', level: 'warning');
+        await stop(run.id);
+      });
+    }
     ctx.store.patch<Run>(Kind.run, run.id, {'status': RunStatus.running});
     ctx.store.appendEvent(run.id, RunEventType.status, {'status': 'running', 'detail': 'Started ${agent.name} in $cwd'});
     unawaited(_pump(run.id, session));
@@ -366,6 +384,7 @@ class Supervisor {
     }
     final code = await session.exitCode;
     _sessions.remove(runId);
+    _deadlines.remove(runId)?.cancel();
     final run = ctx.run(runId);
     if (run.status == RunStatus.stopped) {
       _broadcastAgentState();
@@ -469,6 +488,7 @@ class Supervisor {
     ctx.store.patch<Task>(Kind.task, run.taskId, {'status': TaskStatus.review, 'activeRunId': null, 'attention': null});
     if (s != null) await s.stop();
     _sessions.remove(runId);
+    _deadlines.remove(runId)?.cancel();
     final task = ctx.store.get<Task>(Kind.task, run.taskId);
     if (task != null) await workspaces.refresh(task, agentId: run.agentId, settle: true);
     _broadcastAgentState();

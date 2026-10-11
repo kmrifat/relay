@@ -252,7 +252,7 @@ class _Stream extends ConsumerWidget {
             padding: const EdgeInsets.only(top: 1),
             child: done
                 ? Icon(ok ? LucideIcons.check : LucideIcons.x, size: 13, color: ok ? c.success : c.danger)
-                : SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 1.5, color: c.accentIcon)),
+                : Icon(LucideIcons.circleDashed, size: 13, color: c.accentIcon),
           ),
           const SizedBox(width: 10),
           Expanded(

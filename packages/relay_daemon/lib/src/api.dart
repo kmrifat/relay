@@ -265,6 +265,7 @@ class Api {
         await workspaces.refresh(task);
         return await workspaces.merge(task, repoId: p['repoId'] as String?);
       },
+      M.changesPush: (p) async => workspaces.push(ctx.task(_s(p, 'taskId')), repoId: p['repoId'] as String?),
       M.workspacesList: (p) => workspaceList(),
 
       // ------------------------------------------------------------ git
@@ -284,10 +285,19 @@ class Api {
       M.gitWorktrees: (p) async => [for (final w in await ctx.git.worktrees(_dir(p))) w.toJson()],
 
       // ------------------------------------------------------------ files
-      M.fsList: (p) async {
-        final dir = _dir(p);
-        final files = await ctx.git.isRepo(dir) ? await ctx.git.listFiles(dir) : _walk(dir);
-        return {'root': dir, 'files': files.take(20000).toList()};
+      M.fsList: (params) async {
+        final dir = _dir(params);
+        if (await ctx.git.isRepo(dir)) return {'root': dir, 'files': (await ctx.git.listFiles(dir)).take(20000).toList()};
+        // A task workspace: every repo folder inside it, plus its own files.
+        final files = <String>[];
+        for (final e in Directory(dir).listSync(followLinks: false)..sort((a, b) => a.path.compareTo(b.path))) {
+          final name = p.basename(e.path);
+          if (e is File) files.add(name);
+          if (e is Directory && await ctx.git.isRepo(e.path)) {
+            files.addAll((await ctx.git.listFiles(e.path)).map((f) => '$name/$f'));
+          }
+        }
+        return {'root': dir, 'files': files.isEmpty ? _walk(dir) : files.take(20000).toList()};
       },
       M.fsRead: (p) {
         final path = _file(p);
