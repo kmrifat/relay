@@ -191,7 +191,10 @@ class TaskCard extends ConsumerWidget {
               const SizedBox(width: 6),
               DiffNums(adds, dels),
               const SizedBox(width: 8),
-              Text('${changes.fold<int>(0, (s, ch) => s + ch.filesChanged)} files', style: context.t(11, color: c.text3)),
+              Builder(builder: (context) {
+                final n = changes.fold<int>(0, (s, ch) => s + ch.filesChanged);
+                return Text('$n file${n == 1 ? '' : 's'}', style: context.t(11, color: c.text3));
+              }),
             ]),
           ],
           const SizedBox(height: 8),

@@ -8,6 +8,27 @@ Relay is the working name for the TaskManager project. It is a local-first, AI-n
 - **Architecture:** [ADR-0001](adr/0001-architecture.md), a Flutter UI plus a headless Dart daemon (`relayd`), shipped as one app.
 - **Sub-task IDs** (`M0-03`, `M2-05`, …) are used in branch names, PR titles and board cards.
 
+## Status (2026-10-11)
+
+M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](acceptance/m0-m5.md).
+
+| Milestone | State | Notes |
+|---|---|---|
+| M0 Spike | ✅ | ADR-0001 accepted. Measured: app idle 0.18% CPU / 122 MB, relayd 0.03% / 12 MB; 3 streaming runs ≈ 1.3% each |
+| M1 Local core | ✅ | Board, List (keyboard), task page, ⌘K |
+| M2 Agents I | ✅ | Claude Code (stream-json + permission control), Codex (exec --json); demo agent for trying Relay without an account |
+| M3 Dev views | ✅ | Terminal (relay-pty) with take over, Code view (re_editor), Git graph |
+| M4 Agents II | ✅ | Gemini, OpenCode, Aider (generic text adapters); slots, limits, spend caps, routing, pipelines, Timeline, `relay mcp` |
+| M5 Multi-repo | ✅ | Repos, read-only snapshots, change sets merged in order, push + PR via `gh`, contract notices |
+
+**Still to verify with a live agent account:**
+- Claude Code's permission control messages, with `claude /login` done.
+- Codex's JSON events. The `codex` CLI is not installed on the dev Mac.
+
+**Not done in M0–M5 (open decisions or later milestones):**
+- Login-item registration (M9-02).
+- A GitHub remote and branch protection for this repo, which needs the owner's go-ahead.
+
 ---
 
 ## 1. Product summary
