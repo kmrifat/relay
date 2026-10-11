@@ -49,7 +49,7 @@ void main() {
     expect(resp['request_id'], 'req_1');
     expect((resp['response'] as Map)['behavior'], 'allow');
     expect(((resp['response'] as Map)['updatedInput'] as Map)['command'], contains('wrangler'));
-  });
+  }, testOn: '!windows'); // fixtures are sh scripts; Windows launching is in launch_test
 
   test('Claude Code: deny sends a deny message', () async {
     final log = File('${Directory.systemTemp.createTempSync('fake_claude_').path}/stdin.log');
@@ -64,7 +64,7 @@ void main() {
     }
     final resp = log.readAsLinesSync().map((l) => jsonDecode(l) as Map).firstWhere((l) => l['type'] == 'control_response');
     expect(((resp['response'] as Map)['response'] as Map)['behavior'], 'deny');
-  });
+  }, testOn: '!windows'); // fixtures are sh scripts; Windows launching is in launch_test
 
   test('Claude Code args', () {
     final args = ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', model: 'opus', resumeSessionId: 's1'));
@@ -84,7 +84,7 @@ void main() {
     expect(events.firstWhere((e) => e.type == 'tool_use').data['summary'], 'flutter test test/board');
     expect(events.firstWhere((e) => e.type == 'usage').data['tokensIn'], 1000);
     expect(events.last.data['status'], 'turn_done');
-  });
+  }, testOn: '!windows'); // fixtures are sh scripts; Windows launching is in launch_test
 
   test('Generic: output lines and final message', () async {
     final a = GenericAdapter(id: 'echo', name: 'Echo', binaries: const ['sh'], defaultArgs: const ['-c', 'echo working; echo "{prompt} done"'], color: '#000', letter: 'E');

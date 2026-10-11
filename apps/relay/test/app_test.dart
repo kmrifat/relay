@@ -9,6 +9,7 @@ import 'package:relay/app/theme.dart';
 import 'package:relay/data/nav.dart';
 import 'package:relay/data/relay_data.dart';
 import 'package:relay/mobile/mobile_data.dart';
+import 'package:relay/ui/platform.dart';
 import 'package:relay/mobile/mobile_shell.dart';
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
@@ -163,12 +164,12 @@ void main() {
     await tester.binding.setSurfaceSize(null);
   });
 
-  testWidgets('first run on the Mac: onboarding', (tester) async {
+  testWidgets('first run on the desktop: onboarding', (tester) async {
     await tester.binding.setSurfaceSize(const Size(1440, 900));
     final client = await tester.runAsync(() => fakeRelayd(firstRun: true));
     await tester.pumpWidget(app(client!));
     await settleUntil(tester, find.text('Welcome to Relay'));
-    expect(find.text('Your agents, on your Mac'), findsOneWidget);
+    expect(find.text('Your agents, on your ${Desk.computer}'), findsOneWidget);
     await tester.tap(find.text('Continue'));
     await settleUntil(tester, find.text('Demo agent'));
     expect(find.text('Agents on this Mac'), findsOneWidget);

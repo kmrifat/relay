@@ -18,6 +18,9 @@ class SystemBridge {
   void Function(String action, Map<String, Object?> args)? onMenu;
 
   bool get _mac => Platform.isMacOS;
+
+  /// Widget tests (`flutter test` sets FLUTTER_TEST) never touch the system.
+  static bool get _testing => Platform.environment['FLUTTER_TEST'] == 'true';
   String _last = '';
 
   void init() {
@@ -56,11 +59,13 @@ class SystemBridge {
 
   /// enabled, off, needsApproval, notFound or unsupported.
   Future<String?> loginItem() async {
+    if (_testing) return 'off';
     if (Platform.isWindows || Platform.isLinux) return DesktopLoginItem.status();
     return _call<String>(_system, 'loginItem');
   }
 
   Future<String?> setLoginItem(bool on) async {
+    if (_testing) return on ? 'enabled' : 'off';
     if (Platform.isWindows || Platform.isLinux) {
       final bin = DaemonLauncher().relayBinary;
       if (bin == null) return 'notFound';
