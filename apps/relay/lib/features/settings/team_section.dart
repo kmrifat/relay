@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
@@ -271,10 +272,13 @@ class _InTeam extends ConsumerWidget {
       ),
       const SizedBox(height: 10),
       Row(children: [
-        Btn('Sync now', icon: LucideIcons.refreshCw, onTap: () async => notifier.set(await client.map(M.syncNow))),
-        const SizedBox(width: 8),
-        Btn('Invite teammate…', icon: LucideIcons.userPlus, onTap: () => _invite(context, client)),
-        const Spacer(),
+        Expanded(
+          child: Wrap(spacing: 8, runSpacing: 8, children: [
+            Btn('Sync now', icon: LucideIcons.refreshCw, onTap: () async => notifier.set(await client.map(M.syncNow))),
+            Btn('Invite teammate…', icon: LucideIcons.userPlus, onTap: () => _invite(context, client)),
+            Btn('Pair iPhone…', icon: LucideIcons.smartphone, onTap: () => _pairPhone(context, client)),
+          ]),
+        ),
         Btn('Leave team', kind: BtnKind.plain, onTap: () async {
           if (!await _confirm(context, 'Leave ${s['teamName']}?', 'This Mac stops syncing. Your local copy of the board stays; teammates keep theirs.', 'Leave')) return;
           notifier.set(await client.map(M.syncLeave));
@@ -303,6 +307,42 @@ class _InTeam extends ConsumerWidget {
         ]),
       ),
     ]);
+  }
+
+  /// A QR code the iPhone scans to become this Mac's companion.
+  Future<void> _pairPhone(BuildContext context, RelayClient client) async {
+    final Map<String, Object?> pair;
+    try {
+      pair = await client.map(M.syncPairPhone);
+    } on RpcError catch (e) {
+      if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+    if (!context.mounted) return;
+    final code = pair['code'] as String;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Pair your iPhone', style: context.t(14, w: FontWeight.w600)),
+        content: SizedBox(
+          width: 360,
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('Open Relay on your iPhone and scan this. The phone then sees your board and agents, answers them and queues work on this Mac — '
+                'from anywhere. The code works once.', style: context.t(12, color: context.c.text2)),
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(10)),
+              child: QrImageView(data: code, size: 260, errorCorrectionLevel: QrErrorCorrectLevel.L),
+            ),
+          ]),
+        ),
+        actions: [
+          Btn('Copy code', icon: LucideIcons.copy, onTap: () => Clipboard.setData(ClipboardData(text: code))),
+          Btn('Done', kind: BtnKind.primary, onTap: () => Navigator.pop(context)),
+        ],
+      ),
+    );
   }
 
   Future<void> _invite(BuildContext context, RelayClient client) async {

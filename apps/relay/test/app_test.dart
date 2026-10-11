@@ -8,11 +8,13 @@ import 'package:relay/app/sidebar.dart';
 import 'package:relay/app/theme.dart';
 import 'package:relay/data/nav.dart';
 import 'package:relay/data/relay_data.dart';
+import 'package:relay/mobile/mobile_data.dart';
+import 'package:relay/mobile/mobile_shell.dart';
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 /// An in-memory relayd: answers the calls the UI makes with seeded data.
-Future<RelayClient> fakeRelayd() async {
+Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true}) async {
   final toServer = StreamController<List<int>>();
   final toClient = StreamController<List<int>>();
   final server = RpcPeer(toServer.stream, toClient.sink, name: 'fake-relayd');
@@ -26,7 +28,7 @@ Future<RelayClient> fakeRelayd() async {
   final tasks = [
     {'id': 't1', 'projectId': 'p1', 'number': 1, 'title': 'Share a recipe with a link', 'status': 'review', 'priority': 1, 'repoIds': ['r1', 'r2', 'r3'], 'assigneeKind': 'agent', 'assignee': 'demo', 'createdAt': now},
     {'id': 't2', 'projectId': 'p1', 'number': 2, 'title': 'Recurring meal plans', 'status': 'backlog', 'createdAt': now},
-    {'id': 't3', 'projectId': 'p1', 'number': 3, 'title': 'Login with magic link', 'status': 'running', 'attention': 'question', 'question': 'Resend or CF Email?', 'createdAt': now},
+    {'id': 't3', 'projectId': 'p1', 'number': 3, 'title': 'Login with magic link', 'status': 'running', 'attention': 'question', 'question': phone ? 'Should the magic link go out through Resend or Cloudflare Email Workers?' : 'Resend or CF Email?', 'createdAt': now},
   ];
   final agents = [
     {'id': 'demo', 'adapter': 'demo', 'name': 'Demo agent', 'binaryPath': '/x/relay', 'slots': 3, 'color': '#0A64D8', 'letter': 'D', 'enabled': true},
@@ -53,7 +55,7 @@ Future<RelayClient> fakeRelayd() async {
         {'id': 'codex', 'name': 'Codex', 'color': '#10A37F', 'letter': 'C', 'slots': 2},
       ]},
     ],
-    M.syncStatus: (_) => {'inTeam': true, 'teamName': 'binarycastle', 'deviceId': 'dev', 'pendingOps': 0, 'lastSync': now, 'intervalSeconds': 30, 'shareAgents': false,
+    M.syncStatus: (_) => {if (phone && paired) ...{'pairedMac': 'dev', 'pairedMacName': 'Studio', 'live': true, 'online': ['dev', 'phone1']}, 'inTeam': phone ? paired : true, 'teamName': 'binarycastle', 'deviceId': 'dev', 'pendingOps': 0, 'lastSync': now, 'intervalSeconds': 30, 'shareAgents': false,
         'storage': {'kind': 'r2', 'bucket': 'relay', 'endpoint': 'https://acct.r2.cloudflarestorage.com'}},
     M.status: (_) => {'version': 'test', 'protocol': protocolVersion, 'pid': 1, 'uptimeSeconds': 5, 'rssBytes': 12 << 20, 'deviceId': 'dev'},
     M.settingsGet: (_) => {'userName': 'Rifat', 'deviceName': 'Studio'},
@@ -157,6 +159,53 @@ void main() {
     expect(find.text('Create task'), findsOneWidget);
     expect(find.textContaining('Codex · Nadia'), findsOneWidget); // @ suggestions
     await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('iPhone: unpaired shows pairing', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(402, 874));
+    final client = await tester.runAsync(() => fakeRelayd(phone: true, paired: false));
+    await tester.pumpWidget(ProviderScope(
+      overrides: [clientProvider.overrideWithValue(client!)],
+      child: const MaterialApp(home: MobileShell()),
+    ));
+    await settleUntil(tester, find.text('Pair with your Mac'));
+    expect(find.text('Scan the QR code'), findsOneWidget);
+    expect(find.text('Paste a code'), findsOneWidget);
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('iPhone: inbox answers, board, agents', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(402, 874));
+    final client = await tester.runAsync(() => fakeRelayd(phone: true));
+    await tester.pumpWidget(ProviderScope(
+      overrides: [clientProvider.overrideWithValue(client!)],
+      child: const MaterialApp(home: MobileShell()),
+    ));
+    await settleUntil(tester, find.text('Inbox'));
+    await settleUntil(tester, find.text('Demo agent asks'));
+    // One-tap answers from an either/or question.
+    expect(find.text('Resend'), findsOneWidget);
+    expect(find.text('Cloudflare Email Workers'), findsOneWidget);
+    expect(find.text('Reply in your own words'), findsOneWidget);
+    expect(find.text('Share a recipe with a link'), findsOneWidget); // ready for review
+
+    await tester.tap(find.text('Board'));
+    await tester.pump();
+    expect(find.text('Kitchenly'), findsOneWidget);
+    expect(find.text('Waiting for an answer'), findsOneWidget);
+
+    await tester.tap(find.text('Agents'));
+    await tester.pump();
+    expect(find.text('Studio'), findsOneWidget);
+    expect(find.text('Awake'), findsOneWidget);
+    expect(find.text("Nadia's Codex"), findsOneWidget); // shared by a teammate
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  test('either/or questions become one-tap answers', () {
+    expect(choicesIn('Should the magic link go out through Resend or Cloudflare Email Workers?'), ('Resend', 'Cloudflare Email Workers'));
+    expect(choicesIn('Which provider should we use?'), isNull);
+    expect(choicesIn('A or B or C?'), isNull);
   });
 
   test('smart lists pick the right tasks', () {

@@ -167,7 +167,8 @@ class Secrets {
       if (companions.isNotEmpty) 'companions': {for (final e in companions.entries) e.key: b64(e.value)},
       if (pairing != null) 'pairing': pairing!.toJson(),
     }));
-    if (!Platform.isWindows) Process.runSync('chmod', ['600', tmp.path]);
+    // Phones sandbox the app's files; desktops get owner-only access.
+    if (!Platform.isWindows && !Platform.isIOS && !Platform.isAndroid) Process.runSync('chmod', ['600', tmp.path]);
     tmp.renameSync(path);
   }
 

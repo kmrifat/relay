@@ -76,7 +76,7 @@ void main() {
     // @agent in a message: a task from it, and the agent says so.
     final asked = await c.map(M.messagesPost, {'channelId': chId, 'body': 'The board drag feels laggy. @demo can you profile it?'});
     final t2 = (asked['tasks'] as List).single as Map;
-    expect(t2['title'], 'The board drag feels laggy.');
+    expect(t2['title'], 'The board drag feels laggy. Can you profile it?');
     expect(t2['fromMessage'], (asked['message'] as Map)['id']);
     final ack = (await c.list(M.messagesList, {'channelId': chId})).where((m) => m['taskId'] == t2['id'] && m['authorKind'] == 'agent').single;
     expect(ack['body'], startsWith('Made a task from that'));

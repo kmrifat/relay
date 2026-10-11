@@ -17,7 +17,7 @@ export function start(setupToken = 'setup-secret', port = 0) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const mf = start(process.argv[2]);
+  const mf = start(process.argv[2], Number(process.argv[3] ?? 0));
   const url = await mf.ready;
   console.log(url.href.replace(/\/$/, ''));
   process.on('SIGTERM', async () => {

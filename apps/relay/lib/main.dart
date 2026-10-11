@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app/shell.dart';
 import 'app/theme.dart';
+import 'data/daemon_launcher.dart';
 import 'data/relay_data.dart';
+import 'mobile/mobile_shell.dart';
 import 'ui/widgets.dart';
 
 void main() {
@@ -19,7 +22,8 @@ class RelayApp extends StatelessWidget {
     debugShowCheckedModeBanner: false,
     theme: buildTheme(Brightness.light),
     darkTheme: buildTheme(Brightness.dark),
-    themeMode: ThemeMode.system,
+    // The iPhone design is light (Liquid Glass); the Mac follows the system.
+    themeMode: isMobile ? ThemeMode.light : ThemeMode.system,
     home: const ConnectionGate(),
   );
 }
@@ -31,7 +35,7 @@ class ConnectionGate extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final conn = ref.watch(connectionProvider);
-    if (conn.status == ConnStatus.connected) return const Shell();
+    if (conn.status == ConnStatus.connected) return isMobile ? const MobileShell() : const Shell();
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -41,7 +45,7 @@ class ConnectionGate extends ConsumerWidget {
               width: 56,
               height: 56,
               decoration: BoxDecoration(color: context.c.accent, borderRadius: BorderRadius.circular(13)),
-              child: const Icon(Icons.checklist_rounded, color: Colors.white, size: 30),
+              child: const Icon(LucideIcons.listChecks, color: Colors.white, size: 30),
             ),
             const SizedBox(height: 16),
             Text('Relay', style: context.t(22, w: FontWeight.w700)),

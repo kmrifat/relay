@@ -13,11 +13,16 @@ dependencies:
     sdk: flutter
   flutter_riverpod: ^3.0.0
   lucide_icons_flutter: ^3.1.0
+  mobile_scanner: ^7.4.2
   path: ^1.9.0
+  path_provider: ^2.1.6
+  qr_flutter: ^4.1.0
   re_editor: ^0.10.0
   re_highlight: ^0.0.3
   relay_core: ^0.1.0
+  relay_daemon: ^0.1.0
   relay_protocol: ^0.1.0
+  sqlite3_flutter_libs: ^0.5.42
   xterm: ^4.0.0
 
 dev_dependencies:
