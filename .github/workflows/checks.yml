@@ -88,10 +88,18 @@ jobs:
         run: |
           tool/build_relay_helper.sh tool/out
           cd apps/relay && flutter build windows --release
+      - name: The bundle carries relayd, the ConPTY helper and SQLite
+        run: |
+          r=apps/relay/build/windows/x64/runner/Release
+          test -f $r/relay.exe && test -f $r/helpers/relay.exe && test -f $r/helpers/relay-pty.exe && test -f $r/helpers/sqlite3.dll
+      - name: Installer
+        run: '"/c/Program Files (x86)/Inno Setup 6/ISCC.exe" tool/release/windows_installer.iss'
       - uses: actions/upload-artifact@v4
         with:
           name: relay-windows-x64
-          path: apps/relay/build/windows/x64/runner/Release
+          path: |
+            apps/relay/build/windows/x64/runner/Release
+            tool/release/relay-windows-x64-setup.exe
 
   # The Linux desktop app (M10), with relayd and relay-pty in helpers/.
   linux-build:
@@ -101,7 +109,7 @@ jobs:
       - name: GTK and toolchain for Flutter on Linux
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsqlite3-dev libstdc++-12-dev
+          sudo apt-get install -y -qq clang cmake ninja-build pkg-config libgtk-3-dev liblzma-dev libsqlite3-dev libstdc++-12-dev zsync
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -110,10 +118,15 @@ jobs:
       - run: cd apps/relay && flutter build linux --release
       - name: The bundle carries relayd
         run: test -x apps/relay/build/linux/x64/release/bundle/helpers/relay && test -x apps/relay/build/linux/x64/release/bundle/helpers/relay-pty
+      - name: AppImage
+        working-directory: apps/relay
+        run: ../../tool/release/linux_appimage.sh
       - uses: actions/upload-artifact@v4
         with:
           name: relay-linux-x64
-          path: apps/relay/build/linux/x64/release/bundle
+          path: |
+            apps/relay/build/linux/x64/release/bundle
+            apps/relay/relay-linux-x64.AppImage
 
   # Only the macOS build itself runs on a Mac, and only once the cheaper
   # jobs pass.

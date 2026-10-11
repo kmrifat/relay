@@ -56,6 +56,15 @@ class DaemonLauncher {
     try {
       return await RelayClient.connect(paths);
     } catch (_) {}
+    // Inside an AppImage, start relayd through the AppImage so it keeps its
+    // own mount after this window closes (tool/release/linux_appimage.sh).
+    final appImage = Platform.environment['APPIMAGE'];
+    if (appImage != null && File(appImage).existsSync()) {
+      onStatus?.call('Starting relayd…');
+      Directory(paths.home).createSync(recursive: true);
+      await Process.start(appImage, ['--relayd'], mode: ProcessStartMode.detached);
+      return _waitForDaemon();
+    }
     final bin = relayBinary;
     if (bin == null) {
       throw StateError('relayd is not running and no relay binary was found in the app bundle. '
@@ -69,6 +78,10 @@ class DaemonLauncher {
       mode: ProcessStartMode.detached,
       environment: {'RELAY_PTY': p.join(p.dirname(bin), 'relay-pty$_exe')},
     );
+    return _waitForDaemon();
+  }
+
+  Future<RelayClient> _waitForDaemon() async {
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     Object? last;
     while (DateTime.now().isBefore(deadline)) {

@@ -41,6 +41,10 @@ abstract final class DesktopLoginItem {
   static Future<String> set(bool on, {required String relayBinary}) async {
     if (Platform.isLinux) {
       if (on) {
+        // In an AppImage, the AppImage itself starts relayd (its mount lives
+        // as long as relayd does).
+        final appImage = Platform.environment['APPIMAGE'];
+        final exec = appImage != null ? '"$appImage" --relayd' : '"$relayBinary" daemon';
         File(_unitPath)
           ..parent.createSync(recursive: true)
           ..writeAsStringSync('''
@@ -49,7 +53,7 @@ Description=Relay daemon (relayd): runs your coding agents' queued work
 After=network-online.target
 
 [Service]
-ExecStart="$relayBinary" daemon
+ExecStart=$exec
 Restart=on-failure
 
 [Install]
