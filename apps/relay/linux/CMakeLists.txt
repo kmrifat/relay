@@ -136,3 +136,6 @@ foreach(helper relay relay.exe relay-pty relay-pty.exe sqlite3.dll)
     install(PROGRAMS "${RELAY_HELPERS_DIR}/${helper}" DESTINATION "${CMAKE_INSTALL_PREFIX}/helpers" COMPONENT Runtime)
   endif()
 endforeach()
+
+# Relay's window icon (my_application.cc reads it from data/).
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/runner/resources/app_icon.png" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}" COMPONENT Runtime)

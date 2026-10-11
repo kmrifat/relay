@@ -1,6 +1,7 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
 #include <windows.h>
+#include <shobjidl.h>
 
 #include "flutter_window.h"
 #include "utils.h"
@@ -16,6 +17,9 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  // Relay's identity for the taskbar and toasts; the installer's Start menu
+  // shortcut carries the same AppUserModelID (tool/release/windows_installer.iss).
+  ::SetCurrentProcessExplicitAppUserModelID(L"binarycastle.Relay");
 
   flutter::DartProject project(L"data");
 
@@ -26,8 +30,8 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
-  Win32Window::Size size(1280, 720);
-  if (!window.Create(L"relay", origin, size)) {
+  Win32Window::Size size(1440, 900);
+  if (!window.Create(L"Relay", origin, size)) {
     return EXIT_FAILURE;
   }
   window.SetQuitOnClose(true);

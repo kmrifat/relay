@@ -32,7 +32,7 @@ LicenseFile=..\..\LICENSE
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{userprograms}\Relay"; Filename: "{app}\relay.exe"
+Name: "{userprograms}\Relay"; Filename: "{app}\relay.exe"; AppUserModelID: "binarycastle.Relay"
 Name: "{userdesktop}\Relay"; Filename: "{app}\relay.exe"; Tasks: desktopicon
 
 [Tasks]
