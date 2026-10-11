@@ -206,6 +206,14 @@ int wmain(int argc, wchar_t **argv) {
   if (size.Y <= 0) size.Y = 30;
   const wchar_t *cwd = argv[3][0] ? argv[3] : NULL;
 
+  // Our own stdin/stdout/stderr come from the parent as inheritable
+  // handles. CreatePseudoConsole starts conhost, which would inherit them
+  // and could read our stdin (CI showed 17 bytes of a frame vanish). Keep
+  // them to ourselves.
+  SetHandleInformation(GetStdHandle(STD_INPUT_HANDLE), HANDLE_FLAG_INHERIT, 0);
+  SetHandleInformation(GetStdHandle(STD_OUTPUT_HANDLE), HANDLE_FLAG_INHERIT, 0);
+  SetHandleInformation(GetStdHandle(STD_ERROR_HANDLE), HANDLE_FLAG_INHERIT, 0);
+
   HANDLE in_read, out_write;
   SECURITY_ATTRIBUTES sa = {sizeof sa, NULL, FALSE};
   if (!CreatePipe(&in_read, &in_write, &sa, 0) || !CreatePipe(&out_read, &out_write, &sa, 0)) {
