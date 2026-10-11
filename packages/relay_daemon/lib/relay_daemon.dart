@@ -2,9 +2,12 @@
 library;
 
 export 'src/api.dart';
+export 'src/channels.dart';
 export 'src/context.dart';
 export 'src/demo_agent.dart';
+export 'src/live.dart';
 export 'src/mcp.dart';
+export 'src/notifier.dart';
 export 'src/repo_inspect.dart';
 export 'src/server.dart';
 export 'src/supervisor.dart';

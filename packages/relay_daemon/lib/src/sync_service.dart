@@ -6,6 +6,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import 'package:relay_sync/relay_sync.dart';
 
 import 'context.dart';
+import 'live.dart';
 
 /// relayd's side of team sync: when to sync, the team lifecycle (create,
 /// invite, join, revoke, leave), and this device's public record.
@@ -13,7 +14,21 @@ class SyncService {
   SyncService(this.ctx) : secretsPath = '${ctx.paths.home}/secrets.json' {
     secrets = Secrets.load(secretsPath);
     secrets.save(secretsPath); // creates the device seed on first run
+    live = LiveLink(
+      ctx,
+      secrets: secrets,
+      onPoke: () {
+        _poke?.cancel();
+        _poke = Timer(const Duration(milliseconds: 250), syncNow);
+      },
+      onKeyRotated: syncNow,
+      onChange: () => ctx.broadcast(E.syncState, status()),
+    );
   }
+
+  /// The team Worker's room; idle unless storage is a Worker.
+  late final LiveLink live;
+  Timer? _poke;
 
   final DaemonContext ctx;
   final String secretsPath;
@@ -28,11 +43,15 @@ class SyncService {
   StreamSubscription<EntityChange>? _changes;
 
   Store get store => ctx.store;
+
+  /// The sync engine while in a team (files go through its storage).
+  SyncEngine? get engine => _engine;
   bool get inTeam => secrets.inTeam;
 
   void start() {
     if (secrets.inTeam) _engine = _makeEngine();
     publishDevice();
+    live.start();
     _changes = store.changes.listen((c) {
       if (c.remote || !inTeam || !Kind.synced.contains(c.entity.kind)) return;
       _debounce?.cancel();
@@ -50,10 +69,13 @@ class SyncService {
   Future<void> dispose() async {
     _timer?.cancel();
     _debounce?.cancel();
+    _poke?.cancel();
     await _changes?.cancel();
+    await live.stop();
   }
 
-  SyncEngine _makeEngine() => SyncEngine(store: store, backend: secrets.storage!.backend(), secrets: secrets, saveSecrets: () => secrets.save(secretsPath));
+  SyncEngine _makeEngine() =>
+      SyncEngine(store: store, backend: secrets.storage!.backend(token: secrets.workerToken), secrets: secrets, saveSecrets: () => secrets.save(secretsPath));
 
   SyncEngine get _e => _engine ?? (throw RpcError(RpcError.invalidParams, 'This Mac is not in a team yet.'));
 
@@ -90,12 +112,14 @@ class SyncService {
       publishDevice();
       lastResult = await _e.sync();
       lastSync = DateTime.now();
+      if (lastResult!.pushedOps > 0) live.poke();
       lastError = lastResult!.problems.isEmpty ? null : lastResult!.problems.first;
     } on SyncError catch (e) {
       lastError = e.message;
       if (e.message.contains('removed from the team')) {
         ctx.notice('This Mac was removed from the team. Sync stopped; your local copy stays.', level: 'warning');
         _timer?.cancel();
+        unawaited(live.stop());
       }
     } on StorageException catch (e) {
       lastError = e.message;
@@ -123,12 +147,21 @@ class SyncService {
     'error': lastError,
     'intervalSeconds': ctx.intSetting('syncIntervalSeconds', 30),
     'shareAgents': ctx.boolSetting('shareAgents', false),
+    'live': live.connected,
+    'online': live.online.toList(),
+    'liveIn': live.received,
+    'liveOut': live.sent,
   };
 
   // ------------------------------------------------------------ lifecycle
 
   static StorageSettings parseStorage(Map<String, Object?> p) {
     final kind = p['kind'] as String? ?? 's3';
+    if (kind == 'worker') {
+      final url = (p['url'] as String? ?? '').trim();
+      if (Uri.tryParse(url)?.hasScheme != true) throw RpcError(RpcError.invalidParams, 'Enter the Worker\'s URL.');
+      return StorageSettings.worker(url, setupToken: p['setupToken'] as String?);
+    }
     if (kind == 'folder') {
       final f = p['folder'] as String? ?? '';
       if (f.isEmpty) throw RpcError(RpcError.invalidParams, 'Choose a folder.');
@@ -146,8 +179,33 @@ class SyncService {
     return StorageSettings.s3(endpoint: req('endpoint'), bucket: req('bucket'), region: (p['region'] as String?) ?? 'auto', accessKeyId: req('accessKeyId'), secretAccessKey: req('secretAccessKey'));
   }
 
+  /// `{kind: cloudflare, accountId, apiToken}`: deploy a Worker there.
+  static WorkerDeployer? deployerFor(Map<String, Object?> p) {
+    if (p['kind'] != 'cloudflare') return null;
+    final account = (p['accountId'] as String? ?? '').trim();
+    final token = (p['apiToken'] as String? ?? '').trim();
+    if (account.isEmpty || token.isEmpty) throw RpcError(RpcError.invalidParams, 'Fill in the account ID and API token.');
+    return WorkerDeployer(accountId: account, apiToken: token);
+  }
+
+  /// Checks storage given as `sync.test`/`sync.createTeam` params.
+  Future<List<String>> testParams(Map<String, Object?> p) async {
+    final deployer = deployerFor(p);
+    if (deployer != null) return deployer.check();
+    return test(parseStorage(p));
+  }
+
   /// Checks storage before using it. Returns problems; empty means ready.
   Future<List<String>> test(StorageSettings storage) async {
+    if (storage.kind == 'worker') {
+      try {
+        final h = await (storage.backend() as WorkerBackend).health();
+        if (h['configured'] == true && storage.setupToken != null) return ['This Worker already serves a team. Join it with an invite instead.'];
+        return [];
+      } on StorageException catch (e) {
+        return [e.message];
+      }
+    }
     if (storage.kind == 'folder') {
       final d = Directory(storage.folder!);
       if (!d.existsSync()) return ['The folder does not exist.'];
@@ -161,6 +219,25 @@ class SyncService {
       }
     }
     return (storage.backend() as S3Backend).testConnection('relay/probe-${ctx.deviceId}');
+  }
+
+  /// Creates the team on `sync.createTeam` params; for `cloudflare`, deploys
+  /// the team Worker first (progress goes out as `sync.state` `step`s).
+  Future<Map<String, Object?>> createTeamFrom(String name, Map<String, Object?> p) async {
+    final deployer = deployerFor(p);
+    if (deployer == null) return createTeam(name, parseStorage(p));
+    if (inTeam) throw RpcError(RpcError.invalidParams, 'This Mac is already in a team.');
+    final StorageSettings storage;
+    try {
+      storage = await deployer.deploy(
+        scriptName: WorkerDeployer.nameFor(name),
+        bucket: WorkerDeployer.nameFor(name),
+        onStep: (s) => ctx.broadcast(E.syncState, {...status(), 'step': s}),
+      );
+    } on SyncError catch (e) {
+      throw RpcError(RpcError.invalidParams, e.message);
+    }
+    return createTeam(name, storage);
   }
 
   Future<Map<String, Object?>> createTeam(String name, StorageSettings storage) async {
@@ -177,6 +254,7 @@ class SyncService {
       throw RpcError(RpcError.internal, 'Could not create the team: $e');
     }
     await syncNow();
+    live.start();
     return status();
   }
 
@@ -203,6 +281,7 @@ class SyncService {
     // Everyone's checkout paths differ; ask the user to point repos at theirs.
     await syncNow();
     _schedule();
+    live.start();
     return status();
   }
 
@@ -222,6 +301,7 @@ class SyncService {
         await _engine!.backend.delete('${_engine!.root}/members/${ctx.deviceId}.json');
       } catch (_) {}
     }
+    await live.stop();
     secrets.leave();
     secrets.save(secretsPath);
     _engine = null;

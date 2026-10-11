@@ -10,6 +10,8 @@ import 'package:relay_protocol/relay_protocol.dart';
 import 'api.dart';
 import 'context.dart';
 import 'repo_inspect.dart';
+import 'channels.dart';
+import 'notifier.dart';
 import 'supervisor.dart';
 import 'sync_service.dart';
 import 'terminals.dart';
@@ -66,6 +68,8 @@ class RelayDaemon {
   late final Workspaces workspaces;
   late final Terminals terminals;
   late final SyncService sync;
+  late final Channels channels;
+  late final Notifier notifier;
   late final Api api;
   ServerSocket? _server;
   final _clients = <_Client>{};
@@ -109,7 +113,9 @@ class RelayDaemon {
     terminals = Terminals(ctx);
     sync = SyncService(ctx);
     supervisor.sync = sync;
-    api = Api(ctx, supervisor, workspaces, terminals, sync, startedAt: startedAt);
+    channels = Channels(ctx, sync);
+    notifier = Notifier(ctx);
+    api = Api(ctx, supervisor, workspaces, terminals, sync, channels, startedAt: startedAt);
     ensureDemoAgent(ctx);
     if (detectOnStart) {
       try {
@@ -143,6 +149,8 @@ class RelayDaemon {
 
     supervisor.startScheduler();
     sync.start();
+    channels.start();
+    notifier.start();
     _wireEvents();
   }
 
@@ -213,6 +221,8 @@ class RelayDaemon {
     if (_stopped.isCompleted) return;
     await supervisor.dispose();
     await sync.dispose();
+    await channels.dispose();
+    await notifier.dispose();
     await terminals.dispose();
     for (final c in _clients.toList()) {
       await c.peer.close();

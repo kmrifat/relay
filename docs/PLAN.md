@@ -10,7 +10,7 @@ Relay is the working name for the TaskManager project. It is a local-first, AI-n
 
 ## Status (2026-10-11)
 
-M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](acceptance/m0-m5.md). M6 (team sync) is built; see [acceptance/m6.md](acceptance/m6.md) and [format/sync.md](format/sync.md).
+M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](acceptance/m0-m5.md). M6 (team sync) and M7 (Worker, live, channels, notifications) are built; see [acceptance/m6.md](acceptance/m6.md), [acceptance/m7.md](acceptance/m7.md), [format/sync.md](format/sync.md) and [format/worker.md](format/worker.md).
 
 | Milestone | State | Notes |
 |---|---|---|
@@ -20,7 +20,8 @@ M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](a
 | M3 Dev views | ✅ | Terminal (relay-pty) with take over, Code view (re_editor), Git graph |
 | M4 Agents II | ✅ | Gemini, OpenCode, Aider (generic text adapters); slots, limits, spend caps, routing, pipelines, Timeline, `relay mcp` |
 | M5 Multi-repo | ✅ | Repos, read-only snapshots, change sets merged in order, push + PR via `gh`, contract notices |
-| M6 Team sync | ✅ | E2E-encrypted op log on R2 / S3 / a shared folder; one-time invites; revoke rotates the key; teammates' shared agents; Settings → Team. Worker mode moves to M7 |
+| M6 Team sync | ✅ | E2E-encrypted op log on R2 / S3 / a shared folder; one-time invites; revoke rotates the key; teammates' shared agents; Settings → Team |
+| M7 Live | ✅ | Team Worker + Durable Object deployed by Relay (no wrangler, no shared keys); live room with pokes, streamed run steps and presence; channels (T04) with `/task`, `@agent`, agent reports, digest, encrypted files, reactions, pins; macOS notifications and Dock badge |
 
 **Still to verify with a live agent account:**
 - Claude Code's permission control messages, with `claude /login` done.

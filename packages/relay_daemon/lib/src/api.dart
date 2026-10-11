@@ -8,6 +8,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 
 import 'context.dart';
 import 'repo_inspect.dart';
+import 'channels.dart';
 import 'supervisor.dart';
 import 'sync_service.dart';
 import 'terminals.dart';
@@ -15,13 +16,14 @@ import 'workspaces.dart';
 
 /// Registers every request method on a client connection.
 class Api {
-  Api(this.ctx, this.supervisor, this.workspaces, this.terminals, this.sync, {required this.startedAt});
+  Api(this.ctx, this.supervisor, this.workspaces, this.terminals, this.sync, this.channels, {required this.startedAt});
 
   final DaemonContext ctx;
   final Supervisor supervisor;
   final Workspaces workspaces;
   final Terminals terminals;
   final SyncService sync;
+  final Channels channels;
   final DateTime startedAt;
 
   Store get store => ctx.store;
@@ -203,9 +205,17 @@ class Api {
         supervisor.messageAgent(_s(p, 'taskId'), _s(p, 'from'), _s(p, 'to'), _s(p, 'text'));
         return true;
       },
-      M.runsEvents: (p) => [
-        for (final e in store.events(_s(p, 'runId'), after: (p['after'] as num?)?.toInt() ?? 0, limit: (p['limit'] as num?)?.toInt())) e.toJson(),
-      ],
+      M.runsEvents: (p) {
+        final runId = _s(p, 'runId');
+        final events = store.events(runId, after: (p['after'] as num?)?.toInt() ?? 0, limit: (p['limit'] as num?)?.toInt());
+        // A teammate's run: ask its device for what we haven't seen; it
+        // arrives as run.events like a local run's.
+        final run = store.get<Run>(Kind.run, runId);
+        if (run?.deviceId != null && run!.deviceId != ctx.deviceId && sync.live.connected) {
+          sync.live.want(runId, store.events(runId).lastOrNull?.seq ?? 0);
+        }
+        return [for (final e in events) e.toJson()];
+      },
       M.runsStart: (p) async {
         // Starting a run by hand takes the task to this device, unless a
         // teammate's device is running it right now.
@@ -292,14 +302,46 @@ class Api {
 
       // ------------------------------------------------------------ sync
       M.syncStatus: (_) => sync.status(),
-      M.syncTest: (p) async => {'problems': await sync.test(SyncService.parseStorage(_m(p, 'storage')))},
-      M.syncCreateTeam: (p) async => sync.createTeam(_s(p, 'name'), SyncService.parseStorage(_m(p, 'storage'))),
+      M.syncTest: (p) async => {'problems': await sync.testParams(_m(p, 'storage'))},
+      M.syncCreateTeam: (p) async => sync.createTeamFrom(_s(p, 'name'), _m(p, 'storage')),
       M.syncInvite: (_) async => {'code': await sync.invite()},
       M.syncJoin: (p) async => sync.join(_s(p, 'code')),
       M.syncNow: (_) async => sync.syncNow(),
       M.syncRevoke: (p) async => sync.revoke(_s(p, 'deviceId')),
       M.syncLeave: (_) async => sync.leave(),
       M.devicesList: (_) => _json(store.list<DeviceInfo>(Kind.device)),
+
+      // ------------------------------------------------------------ channels
+      M.channelsList: (_) => channels.list(),
+      M.channelsCreate: (p) => channels.create(_s(p, 'name'), projectId: p['projectId'] as String?, topic: p['topic'] as String? ?? '').toJson(),
+      M.channelsUpdate: (p) {
+        final fields = Map.of(_m(p, 'fields'))..removeWhere((k, _) => !{'name', 'topic', 'projectId'}.contains(k));
+        return store.patch<Channel>(Kind.channel, _s(p, 'id'), fields).toJson();
+      },
+      M.channelsRead: (p) {
+        channels.markRead(_s(p, 'channelId'));
+        return true;
+      },
+      M.channelsPin: (p) {
+        channels.pin(_s(p, 'channelId'), _s(p, 'messageId'), p['on'] != false);
+        return true;
+      },
+      M.messagesList: (p) => _json(channels.messages(_s(p, 'channelId'), limit: (p['limit'] as num?)?.toInt() ?? 300)),
+      M.messagesPost: (p) async => channels.post(
+        _s(p, 'channelId'),
+        p['body'] as String? ?? '',
+        replyTo: p['replyTo'] as String?,
+        files: ((p['files'] as List?) ?? const []).cast<String>(),
+      ),
+      M.messagesReact: (p) {
+        channels.react(_s(p, 'messageId'), _s(p, 'emoji'), p['on'] != false);
+        return true;
+      },
+      M.messagesDelete: (p) {
+        channels.delete(_s(p, 'id'));
+        return true;
+      },
+      M.filesGet: (p) async => {'path': await channels.file(_s(p, 'messageId'), _s(p, 'fileId'))},
 
       // ------------------------------------------------------------ git
       M.gitLog: (p) async {

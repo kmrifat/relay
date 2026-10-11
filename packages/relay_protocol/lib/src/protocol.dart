@@ -84,6 +84,17 @@ abstract final class M {
   static const syncRevoke = 'sync.revoke';
   static const syncLeave = 'sync.leave';
   static const devicesList = 'devices.list';
+
+  static const channelsList = 'channels.list';
+  static const channelsCreate = 'channels.create';
+  static const channelsUpdate = 'channels.update';
+  static const channelsRead = 'channels.read';
+  static const channelsPin = 'channels.pin';
+  static const messagesList = 'messages.list';
+  static const messagesPost = 'messages.post';
+  static const messagesReact = 'messages.react';
+  static const messagesDelete = 'messages.delete';
+  static const filesGet = 'files.get';
 }
 
 /// Events (relayd → client), sent as JSON-RPC notifications.
@@ -111,6 +122,10 @@ abstract final class E {
 
   /// sync.status's shape, after every sync pass.
   static const syncState = 'sync.state';
+
+  /// `{kind, title, body, taskId?, channelId?, messageId?}` worth a system
+  /// notification: kind is ask, review, failed, mention or consent.
+  static const notify = 'notify';
 }
 
 /// Where relayd keeps its socket, database and state.

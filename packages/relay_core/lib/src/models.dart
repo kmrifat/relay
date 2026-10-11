@@ -12,12 +12,14 @@ abstract final class Kind {
   static const change = 'change';
   static const rule = 'rule';
   static const device = 'device';
+  static const channel = 'channel';
+  static const message = 'message';
 
-  static const all = [project, repo, task, comment, run, agent, change, rule, device];
+  static const all = [project, repo, task, comment, run, agent, change, rule, device, channel, message];
 
   /// Kinds shared with the team. Agent profiles and routing rules describe
   /// this device's CLIs and preferences, so they stay local.
-  static const synced = {project, repo, task, comment, run, change, device};
+  static const synced = {project, repo, task, comment, run, change, device, channel, message};
 }
 
 /// Base for every synced record: a JSON map with an `id`.
@@ -84,6 +86,8 @@ Entity entityFrom(String kind, Map<String, Object?> data) => switch (kind) {
   Kind.change => ChangeEntry(data),
   Kind.rule => RoutingRule(data),
   Kind.device => DeviceInfo(data),
+  Kind.channel => Channel(data),
+  Kind.message => Message(data),
   _ => throw ArgumentError('Unknown kind $kind'),
 };
 
@@ -379,6 +383,81 @@ class DeviceInfo extends Entity {
   bool get shareAgents => boolOr('shareAgents', false);
   DateTime? get lastSeen => _date(data['lastSeen']);
   bool get revoked => boolOr('revoked', false);
+}
+
+/// A team chat channel, optionally linked to a project's board.
+class Channel extends Entity {
+  const Channel(super.data);
+  @override
+  String get kind => Kind.channel;
+
+  /// Without the `#`, e.g. `general`, `taskmanager`.
+  String get name => str('name') ?? id;
+  String get topic => str('topic') ?? '';
+
+  /// The project whose board `/task` adds to.
+  String? get projectId => str('projectId');
+
+  /// Pinned message ids. Stored as `pin.<messageId>: true` fields so pins
+  /// from two devices merge.
+  List<String> get pins => [
+    for (final e in data.entries)
+      if (e.key.startsWith('pin.') && e.value == true) e.key.substring(4),
+  ];
+
+  /// The deterministic id of a project's channel (no duplicates when two
+  /// devices create it).
+  static String idFor(String projectId) => 'ch-$projectId';
+  static const general = 'ch-general';
+}
+
+/// A message in a channel. Reactions are `react.<emoji>.<person>: true`
+/// fields, so concurrent reactions merge field by field.
+class Message extends Entity {
+  const Message(super.data);
+  @override
+  String get kind => Kind.message;
+
+  String get channelId => str('channelId')!;
+
+  /// `person`, `agent` or `system` (Relay: digests, notices).
+  String get authorKind => str('authorKind') ?? 'person';
+  String get author => str('author') ?? '';
+
+  /// The device it was sent from (agents: the device they run on).
+  String? get deviceId => str('deviceId');
+  String get body => str('body') ?? '';
+
+  /// A thread reply's parent message.
+  String? get replyTo => str('replyTo');
+
+  /// A task this message created or reports on (shows a task card).
+  String? get taskId => str('taskId');
+
+  /// `digest` for the morning digest.
+  String? get tag => str('tag');
+
+  /// `[{id, name, size, mime}]`; the bytes are sealed in storage under
+  /// `files/<id>` (docs/format/sync.md).
+  List<Map<String, Object?>> get files => maps('files');
+
+  /// emoji → people who reacted with it.
+  Map<String, List<String>> get reactions {
+    final out = <String, List<String>>{};
+    for (final e in data.entries) {
+      if (!e.key.startsWith('react.') || e.value != true) continue;
+      final rest = e.key.substring(6);
+      final dot = rest.lastIndexOf('.');
+      if (dot <= 0) continue;
+      (out[rest.substring(0, dot)] ??= []).add(rest.substring(dot + 1));
+    }
+    return out;
+  }
+
+  static String reactionField(String emoji, String person) => 'react.$emoji.${person.replaceAll('.', '')}';
+
+  /// `@handles` in the body, without the `@`.
+  List<String> get mentions => [for (final m in RegExp(r'@([A-Za-z0-9_.-]+)').allMatches(body)) m.group(1)!.replaceAll(RegExp(r'[.]+$'), '')];
 }
 
 /// "If tag is #tests then DeepSeek." Rules are checked top to bottom.

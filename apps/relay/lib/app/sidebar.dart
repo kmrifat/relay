@@ -31,6 +31,16 @@ class Sidebar extends ConsumerWidget {
     int count(AppPage p) => tasks.where((t) => inSmartList(p, t)).length;
     final running = data.all<Run>(Kind.run).where((r) => RunStatus.isActive(r.status)).length;
     final onTask = nav.taskId != null;
+    final sync = ref.watch(syncStatusProvider);
+    final inTeam = sync['inTeam'] == true;
+    final me = ref.read(clientProvider).hello['deviceId'] as String? ?? '';
+    final online = data.onlineDevices(sync, me);
+    final unread = ref.watch(unreadProvider);
+    // Teammates: one row per person, online if any of their devices is.
+    final people = <String, List<DeviceInfo>>{};
+    for (final d in data.devices.where((d) => d.id != me)) {
+      (people[d.person.isEmpty ? d.name : d.person] ??= []).add(d);
+    }
 
     return Container(
       color: c.sidebar,
@@ -49,8 +59,14 @@ class Sidebar extends ConsumerWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text('Relay', style: context.t(13, w: FontWeight.w700)),
-                Text(running == 0 ? 'No agents running' : '$running agent${running == 1 ? '' : 's'} running',
-                    style: context.t(11, color: c.text2)),
+                Text(
+                  inTeam
+                      ? '${sync['teamName']} · ${online.length} online'
+                      : (running == 0 ? 'No agents running' : '$running agent${running == 1 ? '' : 's'} running'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: context.t(11, color: c.text2),
+                ),
               ]),
             ),
           ]),
@@ -90,6 +106,39 @@ class Sidebar extends ConsumerWidget {
                 trailing: _agentTrailing(context, data, a),
                 onTap: () => n.page(AppPage.agents),
               ),
+            if (people.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _Header('Team', onTap: () => n.page(AppPage.settings)),
+              for (final MapEntry(key: person, value: devices) in people.entries)
+                Builder(builder: (context) {
+                  final isOnline = devices.any((d) => online.contains(d.id));
+                  final shared = devices.where((d) => d.shareAgents).expand((d) => d.agents).map((a) => '${a['name']}'.split(' ').first).toSet();
+                  return _Row(
+                    leading: Avatar(person, size: 14, color: isOnline ? null : c.text3),
+                    label: person,
+                    trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                      if (shared.isNotEmpty) Text('+ ${shared.first}', style: context.t(11, color: c.text3)),
+                      if (!isOnline && shared.isEmpty) Text('away', style: context.t(11, color: c.text3)),
+                      const SizedBox(width: 6),
+                      if (isOnline) Dot(c.success),
+                    ]),
+                    onTap: () => n.page(AppPage.settings),
+                  );
+                }),
+            ],
+            if (data.channels.isNotEmpty) ...[
+              const SizedBox(height: 14),
+              _Header('Channels'),
+              for (final ch in data.channels)
+                _Row(
+                  icon: LucideIcons.hash,
+                  iconColor: c.text2,
+                  label: ch.name,
+                  count: (unread[ch.id] ?? 0) > 0 ? unread[ch.id] : null,
+                  selected: !onTask && nav.page == AppPage.channel && nav.channelId == ch.id,
+                  onTap: () => n.channel(ch.id),
+                ),
+            ],
           ]),
         ),
         _Row(

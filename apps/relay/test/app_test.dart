@@ -57,6 +57,21 @@ Future<RelayClient> fakeRelayd() async {
         'storage': {'kind': 'r2', 'bucket': 'relay', 'endpoint': 'https://acct.r2.cloudflarestorage.com'}},
     M.status: (_) => {'version': 'test', 'protocol': protocolVersion, 'pid': 1, 'uptimeSeconds': 5, 'rssBytes': 12 << 20, 'deviceId': 'dev'},
     M.settingsGet: (_) => {'userName': 'Rifat', 'deviceName': 'Studio'},
+    M.channelsList: (_) => [
+      {'id': 'ch-general', 'name': 'general', 'unread': 0},
+      {'id': 'ch-p1', 'name': 'kitchenly', 'projectId': 'p1', 'unread': 2, 'pin.m3': true},
+    ],
+    M.messagesList: (p) => p['channelId'] == 'ch-p1'
+        ? [
+            {'id': 'm1', 'channelId': 'ch-p1', 'authorKind': 'system', 'author': 'Relay', 'tag': 'digest', 'body': 'Overnight: 2 runs · 1 ready for review', 'createdAt': now,
+              'items': [{'taskId': 't1', 'key': 'KT-1', 'title': 'Share a recipe with a link', 'ok': true, 'agent': 'Demo agent'}]},
+            {'id': 'm2', 'channelId': 'ch-p1', 'authorKind': 'person', 'author': 'Nadia', 'deviceId': 'dev2', 'body': 'Drag feels laggy. @codex can you profile it?', 'createdAt': now,
+              'react.+1.Rifat': true, 'react.+1.Nadia': true},
+            {'id': 'm3', 'channelId': 'ch-p1', 'authorKind': 'agent', 'author': 'Codex', 'deviceId': 'dev2', 'body': 'Made a task from that.', 'taskId': 't2', 'createdAt': now,
+              'files': [{'id': 'f1', 'name': 'presence-spec.md', 'size': 4096, 'stored': 'team'}]},
+          ]
+        : [],
+    M.channelsRead: (_) => true,
     M.commentsList: (_) => [
       {'id': 'cm1', 'taskId': 't1', 'authorKind': 'agent', 'author': 'Demo agent', 'body': 'Done. Wrote the share link.', 'createdAt': now},
     ],
@@ -118,6 +133,29 @@ void main() {
     expect(find.text('This Mac'), findsWidgets);
     expect(find.text('Shares agents'), findsOneWidget);
     expect(find.byTooltip('Remove from team'), findsOneWidget); // not for this Mac
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('a channel: digest, mentions, reactions, task card, file, people and agents', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    final client = await tester.runAsync(fakeRelayd);
+    await tester.pumpWidget(app(client!));
+    await settleUntil(tester, find.text('Share a recipe with a link'));
+    expect(find.text('kitchenly'), findsOneWidget); // sidebar channel
+    await tester.tap(find.text('kitchenly'));
+    await settleUntil(tester, find.text('Made a task from that.'));
+    expect(find.text('Overnight: 2 runs · 1 ready for review'), findsOneWidget);
+    expect(find.text('DIGEST'), findsOneWidget);
+    expect(find.text('AGENT · NADIA\'S MAC'), findsOneWidget);
+    expect(find.text('+1  2'), findsOneWidget);
+    expect(find.text('Recurring meal plans'), findsOneWidget); // task card for t2
+    expect(find.text('presence-spec.md'), findsWidgets); // file + pinned
+    expect(find.text('@codex'), findsOneWidget); // Nadia's shared agent
+    expect(find.text('Nadia'), findsWidgets);
+    await tester.enterText(find.byType(TextField).last, '/task @co');
+    await tester.pump();
+    expect(find.text('Create task'), findsOneWidget);
+    expect(find.textContaining('Codex · Nadia'), findsOneWidget); // @ suggestions
     await tester.binding.setSurfaceSize(null);
   });
 

@@ -6,6 +6,7 @@ import 'package:relay_core/relay_core.dart';
 import 'crypto.dart';
 import 'settings.dart';
 import 'storage.dart';
+import 'worker_backend.dart';
 
 class SyncError implements Exception {
   SyncError(this.message);
@@ -93,7 +94,13 @@ class SyncEngine {
       ..teamName = teamName
       ..keyring.clear()
       ..keyring[1] = RelayCrypto.newKey();
-    final engine = SyncEngine(store: store, backend: storage.backend(), secrets: secrets, saveSecrets: saveSecrets);
+    final engine = SyncEngine(store: store, backend: storage.backend(token: secrets.workerToken), secrets: secrets, saveSecrets: saveSecrets);
+    final backend = engine.backend;
+    if (backend is WorkerBackend) {
+      final setup = storage.setupToken ?? (throw SyncError('This Worker was deployed from another Mac. Join with an invite instead.'));
+      await backend.setup(setupToken: setup, teamId: secrets.teamId!, epoch: 1, hash: await RelayCrypto.tokenHash((await secrets.workerToken())!));
+      secrets.storage = StorageSettings.worker(storage.endpoint!); // the setup token is spent
+    }
     await engine.backend.put('${engine.root}/team.json', _json({'format': 1, 'teamId': secrets.teamId, 'epoch': 1}),
         condition: const WriteCondition.ifAbsent());
     await engine._publishMember();
@@ -143,7 +150,7 @@ class SyncEngine {
     required void Function() saveSecrets,
   }) async {
     final invite = Invite.parse(code);
-    final backend = invite.storage.backend();
+    final backend = invite.storage.backend(token: secrets.workerToken);
     final objectKey = 'relay/${invite.teamId}/invites/${invite.inviteId}.inv';
     final body = await backend.get(objectKey);
     if (body == null) throw SyncError('This invite was already used or withdrawn. Ask for a new one.');
@@ -203,8 +210,15 @@ class SyncEngine {
       final pub = unb64((jsonDecode(utf8.decode(info.bytes)) as Map)['publicKey'] as String);
       await backend.put('$root/keys/$epoch/$m.key', await RelayCrypto.wrapFor(pub, key));
     }
-    // Only publish the new epoch once every member's key is in place.
-    await backend.put('$root/team.json', _json({'format': 1, 'teamId': teamId, 'epoch': epoch}), condition: WriteCondition.ifMatch(team.etag));
+    // Only publish the new epoch once every member's key is in place. A
+    // Worker switches its access token in the same step.
+    final teamJson = _json({'format': 1, 'teamId': teamId, 'epoch': epoch});
+    final b = backend;
+    if (b is WorkerBackend) {
+      await b.publishEpoch(epoch: epoch, hash: await RelayCrypto.tokenHash(await RelayCrypto.workerToken(key, teamId)), teamJson: teamJson, ifMatch: team.etag);
+    } else {
+      await backend.put('$root/team.json', teamJson, condition: WriteCondition.ifMatch(team.etag));
+    }
     secrets.keyring[epoch] = key;
     saveSecrets();
     store.patch<DeviceInfo>(Kind.device, removedDevice, {'revoked': true});

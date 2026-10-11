@@ -219,7 +219,8 @@ class Store {
         id,
         jsonEncode(data),
         data['projectId'] as String?,
-        data['taskId'] as String?,
+        // Messages are looked up by channel; they may also name a task.
+        (kind == Kind.message ? data['channelId'] : data['taskId']) as String?,
         data['deleted'] == true ? 1 : 0,
       ],
     );
@@ -232,7 +233,9 @@ class Store {
     return entityFrom(kind, (jsonDecode(row.first['json'] as String) as Map).cast()) as T;
   }
 
-  List<T> list<T extends Entity>(String kind, {String? projectId, String? taskId}) {
+  /// [channelId] filters messages (it shares the indexed task column).
+  List<T> list<T extends Entity>(String kind, {String? projectId, String? taskId, String? channelId}) {
+    taskId ??= channelId;
     final where = StringBuffer('kind = ? AND deleted = 0');
     final args = <Object?>[kind];
     if (projectId != null) {
@@ -314,6 +317,15 @@ class Store {
     _db.execute('INSERT INTO run_events (run_id, seq, json) VALUES (?, ?, ?)', [runId, seq, jsonEncode(e.toJson())]);
     _events.add(e);
     return e;
+  }
+
+  /// Adds events of a run on another device (live from a teammate). Ones
+  /// already here are skipped; new ones go out on [runEvents].
+  void importEvents(Iterable<RunEvent> events) {
+    for (final e in events) {
+      _db.execute('INSERT OR IGNORE INTO run_events (run_id, seq, json) VALUES (?, ?, ?)', [e.runId, e.seq, jsonEncode(e.toJson())]);
+      if (_db.updatedRows > 0) _events.add(e);
+    }
   }
 
   List<RunEvent> events(String runId, {int after = 0, int? limit}) => _db

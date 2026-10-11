@@ -32,7 +32,8 @@ class _Setup extends ConsumerStatefulWidget {
 
 class _SetupState extends ConsumerState<_Setup> {
   bool joining = false;
-  String kind = 'r2';
+  String kind = 'cloudflare';
+  final apiToken = TextEditingController();
   final team = TextEditingController();
   final account = TextEditingController();
   final endpoint = TextEditingController();
@@ -47,6 +48,7 @@ class _SetupState extends ConsumerState<_Setup> {
   bool busy = false;
 
   Map<String, Object?> get storage => switch (kind) {
+    'cloudflare' => {'kind': 'cloudflare', 'accountId': account.text.trim(), 'apiToken': apiToken.text.trim()},
     'folder' => {'kind': 'folder', 'folder': folder.text.trim()},
     'r2' => {'kind': 'r2', 'accountId': account.text, 'bucket': bucket.text, 'accessKeyId': keyId.text, 'secretAccessKey': secret.text},
     _ => {'kind': 's3', 'endpoint': endpoint.text, 'region': region.text, 'bucket': bucket.text, 'accessKeyId': keyId.text, 'secretAccessKey': secret.text},
@@ -70,7 +72,9 @@ class _SetupState extends ConsumerState<_Setup> {
   Future<void> test() => _run((c) async {
     final problems = ((await c.map(M.syncTest, {'storage': storage}))['problems'] as List).cast<String>();
     ok = problems.isEmpty;
-    message = ok ? 'Storage works: Relay can read, write and lock objects there.' : problems.join('\n');
+    message = ok
+        ? (kind == 'cloudflare' ? 'The token can deploy Workers and create R2 buckets on this account.' : 'Storage works: Relay can read, write and lock objects there.')
+        : problems.join('\n');
   });
 
   Future<void> create() => _run((c) async {
@@ -83,9 +87,30 @@ class _SetupState extends ConsumerState<_Setup> {
     await ref.read(dataProvider.notifier).reload(c);
   });
 
+  Widget secretField(BuildContext context, TextEditingController ctl, {String? hint}) {
+    final c = context.c;
+    return TextField(
+      controller: ctl,
+      obscureText: true,
+      cursorOpacityAnimates: false,
+      style: context.t(12, family: mono),
+      decoration: InputDecoration(
+        isDense: true,
+        hintText: hint,
+        hintStyle: context.t(12, color: c.text3),
+        filled: true,
+        fillColor: c.field,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
+        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(5), borderSide: BorderSide(color: c.fieldStroke)),
+        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(5), borderSide: BorderSide(color: c.accent, width: 2)),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.c;
+    final step = busy ? ref.watch(syncStatusProvider.select((s) => s['step'] as String?)) : null;
     Widget field(String label, TextEditingController ctl, {String? hint, bool mono = false}) =>
         FieldRow(label, FieldInput(controller: ctl, hint: hint, mono: mono, size: 12), labelWidth: 120);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -115,13 +140,17 @@ class _SetupState extends ConsumerState<_Setup> {
             field('Team name', team, hint: 'binarycastle'),
             const Hairline(),
             FieldRow('Storage', Row(children: [
-              Segmented<String>(small: true, options: const [('r2', 'Cloudflare R2'), ('s3', 'S3'), ('folder', 'Shared folder')], value: kind, onChanged: (v) => setState(() {
+              Segmented<String>(small: true, options: const [('cloudflare', 'Cloudflare Worker'), ('r2', 'R2 keys'), ('s3', 'S3'), ('folder', 'Shared folder')], value: kind, onChanged: (v) => setState(() {
                 kind = v;
                 message = null;
               })),
             ]), labelWidth: 120),
             const Hairline(),
-            if (kind == 'folder')
+            if (kind == 'cloudflare') ...[
+              field('Account ID', account, hint: 'dash.cloudflare.com → Workers & Pages → Account ID', mono: true),
+              const Hairline(),
+              FieldRow('API token', secretField(context, apiToken, hint: 'Workers Scripts: Edit · Workers R2 Storage: Edit'), labelWidth: 120),
+            ] else if (kind == 'folder')
               FieldRow('Folder', Row(children: [
                 Expanded(child: FieldInput(controller: folder, hint: 'A folder every teammate can reach (Dropbox, NAS…)', mono: true, size: 12)),
                 const SizedBox(width: 8),
@@ -141,27 +170,19 @@ class _SetupState extends ConsumerState<_Setup> {
               const Hairline(),
               field('Access key ID', keyId, mono: true),
               const Hairline(),
-              FieldRow('Secret key', TextField(
-                controller: secret,
-                obscureText: true,
-                cursorOpacityAnimates: false,
-                style: context.t(12, family: mono),
-                decoration: InputDecoration(
-                  isDense: true,
-                  filled: true,
-                  fillColor: c.field,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(5), borderSide: BorderSide(color: c.fieldStroke)),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(5), borderSide: BorderSide(color: c.accent, width: 2)),
-                ),
-              ), labelWidth: 120),
+              FieldRow('Secret key', secretField(context, secret), labelWidth: 120),
             ],
           ]),
         ),
-      if (!joining && kind != 'folder') ...[
+      if (!joining && kind == 'cloudflare') ...[
+        const SizedBox(height: 6),
+        Text('Relay deploys a small Worker and an R2 bucket to your account (free plan is fine) and uses this token only for that; it is not stored. '
+            'Teammates then need no Cloudflare keys at all, removing someone cuts their access, and changes and agent runs show up live.',
+            style: context.t(11, color: c.text3)),
+      ] else if (!joining && kind != 'folder') ...[
         const SizedBox(height: 6),
         Text('Use an API token scoped to this one bucket with Object Read & Write. It is kept in secrets.json (only you can read it) '
-            'and goes to teammates inside the invite code.', style: context.t(11, color: c.text3)),
+            'and goes to teammates inside the invite code. The Worker option avoids sharing it.', style: context.t(11, color: c.text3)),
       ],
       if (message != null) ...[
         const SizedBox(height: 8),
@@ -175,7 +196,7 @@ class _SetupState extends ConsumerState<_Setup> {
       Row(children: [
         if (!joining) ...[Btn('Test connection', onTap: busy ? null : test), const SizedBox(width: 8)],
         Btn(joining ? 'Join team' : 'Create team', kind: BtnKind.primary, onTap: busy ? null : (joining ? join : create)),
-        if (busy) ...[const SizedBox(width: 10), Text('Working…', style: context.t(12, color: c.text2))],
+        if (busy) ...[const SizedBox(width: 10), Flexible(child: Text(step ?? 'Working…', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(12, color: c.text2)))],
       ]),
     ]);
   }
@@ -198,7 +219,13 @@ class _InTeam extends ConsumerWidget {
     final me = s['deviceId'] as String?;
     final devices = ref.watch(dataProvider.select((d) => d.devices));
     final interval = (s['intervalSeconds'] as num?)?.toInt() ?? 30;
-    final where = storage['kind'] == 'folder' ? '${storage['folder']}' : '${storage['bucket']} · ${Uri.tryParse('${storage['endpoint']}')?.host ?? ''}';
+    final where = switch (storage['kind']) {
+      'folder' => '${storage['folder']}',
+      'worker' => '${Uri.tryParse('${storage['endpoint']}')?.host ?? storage['endpoint']} (Worker)',
+      _ => '${storage['bucket']} · ${Uri.tryParse('${storage['endpoint']}')?.host ?? ''}',
+    };
+    final online = ((s['online'] as List?) ?? const []).cast<String>().toSet();
+    final isLive = s['live'] == true;
 
     Future<void> setting(String k, Object v) async {
       await client.call(M.settingsSet, {'values': {k: v}});
@@ -216,7 +243,12 @@ class _InTeam extends ConsumerWidget {
             Dot(error != null ? c.danger : (pending > 0 ? c.warning : c.success)),
             const SizedBox(width: 6),
             Expanded(child: Text(
-              error ?? (last == null ? 'Not synced yet' : 'Synced ${ago(last)}${pending > 0 ? ' · $pending changes waiting' : ''}'),
+              error ??
+                  [
+                    last == null ? 'Not synced yet' : 'Synced ${ago(last)}',
+                    if (pending > 0) '$pending changes waiting',
+                    if (isLive) 'live · ${online.length} online' else if (storage['kind'] == 'worker') 'live link reconnecting',
+                  ].join(' · '),
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: context.t(12, color: error != null ? c.danger : c.text),
@@ -255,7 +287,7 @@ class _InTeam extends ConsumerWidget {
         child: Column(children: [
           for (final (i, d) in devices.indexed) ...[
             if (i > 0) const Hairline(),
-            _DeviceRow(d, me: d.id == me, onRemove: d.id == me ? null : () async {
+            _DeviceRow(d, me: d.id == me, online: online.contains(d.id), onRemove: d.id == me ? null : () async {
               if (!await _confirm(context, 'Remove ${d.name}?',
                   '${d.person.isEmpty ? 'This device' : d.person} loses access to everything new: the team key rotates now. '
                   'What they already synced stays on their Mac.', 'Remove')) {
@@ -312,9 +344,10 @@ class _InTeam extends ConsumerWidget {
 }
 
 class _DeviceRow extends StatelessWidget {
-  const _DeviceRow(this.d, {required this.me, this.onRemove});
+  const _DeviceRow(this.d, {required this.me, this.online = false, this.onRemove});
   final DeviceInfo d;
   final bool me;
+  final bool online;
   final VoidCallback? onRemove;
 
   @override
@@ -334,13 +367,13 @@ class _DeviceRow extends StatelessWidget {
               if (d.shareAgents) ...[const SizedBox(width: 6), Pill('Shares agents', fg: c.success, bg: c.successWash)],
             ]),
             const SizedBox(height: 2),
-            Text('${d.person.isEmpty ? '' : '${d.person} · '}${me ? 'now' : (d.lastSeen == null ? 'never seen' : 'seen ${ago(d.lastSeen)}')}',
+            Text('${d.person.isEmpty ? '' : '${d.person} · '}${me || online ? 'online' : (d.lastSeen == null ? 'never seen' : 'seen ${ago(d.lastSeen)}')}',
                 style: context.t(11, color: c.text3)),
           ]),
         ),
         for (final a in d.agents.take(5)) Padding(padding: const EdgeInsets.only(left: 3), child: Tooltip(message: '${a['name']}', child: AgentTile(agent: AgentProfile(a), size: 16))),
         const SizedBox(width: 10),
-        Dot(me || recent ? c.success : c.text3),
+        Tooltip(message: me || online ? 'Online' : (recent ? 'Seen in the last hour' : 'Offline'), child: Dot(me || online ? c.success : (recent ? c.warning : c.text3))),
         if (onRemove != null) ...[const SizedBox(width: 6), IconBtn(LucideIcons.userMinus, tooltip: 'Remove from team', onTap: onRemove, size: 14)],
       ]),
     );

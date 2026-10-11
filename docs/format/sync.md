@@ -1,6 +1,6 @@
 # Team sync format (v1)
 
-Relay syncs a team's board through storage the team already owns: a Cloudflare R2 bucket, any S3-compatible bucket, or a shared folder (Dropbox, a NAS). There is no Relay server and no Relay account. Every object except two small plain records is encrypted on the device before upload, so the storage provider only ever holds ciphertext.
+Relay syncs a team's board through storage the team already owns: the team's own Cloudflare Worker in front of R2 ([worker.md](worker.md), recommended), an R2 or S3-compatible bucket used directly, or a shared folder (Dropbox, a NAS). There is no Relay server and no Relay account. Every object except two small plain records is encrypted on the device before upload, so the storage provider only ever holds ciphertext.
 
 Code: `packages/relay_sync` (format and engine) and `packages/relay_daemon/lib/src/sync_service.dart` (when relayd syncs, and the team lifecycle).
 
@@ -11,8 +11,10 @@ relayd's store is a log of field patches (`Op {hlc, kind, id, patch}`), merged l
 | Kind | Synced | Why |
 |---|---|---|
 | project, repo, task, comment, change | yes | the shared board |
-| run | yes | teammates see who is running what, where (`deviceId`). Run *events* (the transcript) stay local in v1 |
+| run | yes | teammates see who is running what, where (`deviceId`). Run *events* (the transcript) aren't in the op log. With a Worker they stream live ([worker.md §4](worker.md#4-live-room)) |
 | device | yes | each device's name, person, agents and `shareAgents` consent |
+| channel, message | yes | team chat. Reactions are `react.<emoji>.<person>` fields and pins are `pin.<messageId>`, so concurrent edits merge. Project channels (`ch-<projectId>`), `#general` (`ch-general`) and each day's digest (`dg-<channel>-<date>`) have fixed ids, so two devices creating them get one |
+| files | storage only | attachments are sealed (envelope type `file`, 5) at `files/<id>.bin` and fetched on first open |
 | agent, rule | no | binaries, slots, caps and routing are per machine |
 
 Fields that differ per device carry the device in their name, so two devices never fight over them:
@@ -85,7 +87,9 @@ Op objects are immutable and never overwritten. `seq` is per device, zero-padded
    The removed device can still read what it already had, but nothing new. Its next sync fails with *removed from the team* and relayd stops syncing.
 4. **Leave.** Delete own member record and forget the team in `secrets.json`. The local board stays.
 
-**Storage credentials and trust.** Members share one bucket token. A removed member who kept the token can still list, delete or garble objects, but cannot read or forge new ones. Use a token scoped to the one bucket, and rotate it after removing someone. Per-member tokens via a Worker are M7.
+**Storage credentials and trust.** With direct R2/S3, members share one bucket token. A removed member who kept the token can still list, delete or garble objects, but cannot read or forge new ones. Use a token scoped to the one bucket, and rotate it after removing someone.
+
+With a Worker there is no shared token. Access derives from the team key, and a revoke switches it atomically ([worker.md §2](worker.md#2-access)).
 
 ## 6. API (relayd)
 
@@ -106,9 +110,10 @@ Op objects are immutable and never overwritten. `seq` is per device, zero-padded
 - `{kind: 'r2', accountId, bucket, accessKeyId, secretAccessKey}`
 - `{kind: 's3', endpoint, region, bucket, accessKeyId, secretAccessKey}`
 - `{kind: 'folder', folder}`
+- `{kind: 'worker', url, setupToken?}`: an already-deployed team Worker
+- `{kind: 'cloudflare', accountId, apiToken}`: `sync.createTeam` deploys the Worker first, reporting progress as `sync.state` `{step}`, then uses it. `sync.test` checks the token's permissions
 
 ## 7. Known limits (v1)
 
 - Pull lists all of `ops/` each pass. Fine for thousands of batches. Snapshots and compaction (with per-device `start-after` listing) come with M7.
-- Run transcripts don't sync. Teammates see a run's status, agent and device, but not its events.
-- There is no Worker mode yet (push notifications, per-member tokens).
+- Without a Worker, run transcripts don't reach teammates; they see a run's status, agent and device only.
