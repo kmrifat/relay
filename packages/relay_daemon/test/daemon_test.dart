@@ -360,7 +360,7 @@ void main() {
 
     await call('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'claude-code'}});
     final names = ((await call('tools/list', {}))['tools'] as List).map((t) => t['name']).toList();
-    expect(names, containsAll(['relay_projects', 'relay_tasks', 'relay_create_task', 'relay_task_status']));
+    expect(names, containsAll(['relay_projects', 'relay_tasks', 'relay_create_task', 'relay_task_status', 'relay_update_task']));
     expect(names, isNot(contains('relay_progress'))); // that one needs a run
 
     final (projects, _) = await tool('relay_projects', {});
@@ -400,6 +400,22 @@ void main() {
     expect(list, contains('$key  backlog  Rate limit the share endpoint'));
     final (status, _) = await tool('relay_task_status', {'task': key});
     expect(status, allOf(contains('status: backlog'), contains('assigned to demo'), contains('[ ] 429 after ten requests')));
+
+    // A person's own agent reports progress on a task it is doing itself.
+    final (updated, upErr) = await tool('relay_update_task', {
+      'task': key,
+      'status': 'running',
+      'check': [0],
+      'addDoneWhen': ['Docs say so'],
+      'note': 'Started on the limiter.',
+    });
+    expect(upErr, isFalse, reason: updated);
+    expect(updated, allOf(contains('checklist 1/2'), contains('note posted'), contains('moved to running')));
+    final (after, _) = await tool('relay_task_status', {'task': key});
+    expect(after, allOf(contains('status: running'), contains('[x] 429 after ten requests'), contains('[ ] Docs say so'), contains('Claude Code: Started on the limiter.')));
+    final (badItem, badErr) = await tool('relay_update_task', {'task': key, 'check': [7]});
+    expect(badErr, isTrue);
+    expect(badItem, contains('No "done when" item 7'));
 
     await proc.stdin.close();
     proc.kill();

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:relay_core/relay_core.dart' show TaskStatus;
 import 'package:relay_protocol/relay_protocol.dart';
 
 /// `relay mcp`: an MCP server (stdio) that talks to relayd.
@@ -50,6 +51,7 @@ Future<int> runMcpServer(String? runId, RelayPaths paths) async {
         'relay_tasks' => await _tasks(c, a['project'] as String?, a['status'] as String?),
         'relay_create_task' => await _createTask(c, a),
         'relay_task_status' => await _taskStatus(c, a['task'] as String? ?? ''),
+        'relay_update_task' => await _updateTask(c, a),
         _ => throw RpcError(RpcError.methodNotFound, 'No tool $name'),
       };
       return {
@@ -109,6 +111,21 @@ final _personTools = <Map<String, Object?>>[
   ),
   _tool('relay_task_status', 'Check on a Relay task: status, latest run, checklist, open question and discussion.',
       {'task': _str('Task key, e.g. GA-3')}, required: ['task']),
+  _tool(
+    'relay_update_task',
+    'Update a Relay task you are working on yourself: move it (backlog, running, review, done), tick "done when" '
+        'items, add items, or post a note in its discussion. Use running for "I am on it"; queued hands it to Relay\'s agents.',
+    {
+      'task': _str('Task key, e.g. GA-3'),
+      'status': _str('New status: backlog, queued, running, review or done'),
+      'check': _list('Zero-based "done when" item numbers to tick'),
+      'uncheck': _list('Zero-based "done when" item numbers to untick'),
+      'addDoneWhen': _list('New "done when" items to add'),
+      'note': _str('A note for the task discussion'),
+      'from': _str('Who the note is from, e.g. "Claude Code". Defaults to Claude Code.'),
+    },
+    required: ['task'],
+  ),
 ];
 
 Map<String, Object?> _tool(String name, String description, Map<String, Map<String, Object?>> props, {List<String> required = const []}) => {
@@ -218,13 +235,67 @@ Future<String> _createTask(RelayClient c, Map<String, Object?> a) async {
       '${repoNames.isEmpty ? '' : ', changing ${repoNames.join(', ')}'}.';
 }
 
-Future<String> _taskStatus(RelayClient c, String key) async {
+/// The project and task for a key like GA-3.
+Future<(Map<String, Object?>, Map<String, Object?>)> _byKey(RelayClient c, String key) async {
   final m = RegExp(r'^\s*([A-Za-z0-9]+)-(\d+)\s*$').firstMatch(key);
   if (m == null) throw RpcError(RpcError.invalidParams, 'Pass a task key like GA-3.');
   final project = await _project(c, m.group(1));
   final number = int.parse(m.group(2)!);
   final task = (await c.list(M.tasksList, {'projectId': project['id']})).where((t) => t['number'] == number).firstOrNull;
   if (task == null) throw RpcError(RpcError.notFound, 'No task $key.');
+  return (project, task);
+}
+
+Future<String> _updateTask(RelayClient c, Map<String, Object?> a) async {
+  final (project, task) = await _byKey(c, a['task'] as String? ?? '');
+  final key = '${project['key']}-${task['number']}';
+  final id = task['id'] as String;
+  final done = [...?(task['doneWhen'] as List?)].map((e) => Map<String, Object?>.of((e as Map).cast())).toList();
+  final said = <String>[];
+  int index(String v) {
+    final i = int.tryParse(v) ?? -1;
+    if (i < 0 || i >= done.length) throw RpcError(RpcError.invalidParams, 'No "done when" item $v on $key (there are ${done.length}).');
+    return i;
+  }
+
+  var changed = false;
+  for (final v in _strings(a['check'])) {
+    done[index(v)]['done'] = true;
+    changed = true;
+  }
+  for (final v in _strings(a['uncheck'])) {
+    done[index(v)]['done'] = false;
+    changed = true;
+  }
+  for (final text in _strings(a['addDoneWhen'])) {
+    done.add({'text': text, 'done': false});
+    changed = true;
+  }
+  if (changed) {
+    await c.call(M.tasksUpdate, {'id': id, 'fields': {'doneWhen': done}});
+    said.add('checklist ${done.where((d) => d['done'] == true).length}/${done.length}');
+  }
+  final note = (a['note'] as String? ?? '').trim();
+  if (note.isNotEmpty) {
+    final from = (a['from'] as String? ?? '').trim();
+    await c.call(M.commentsPost, {'taskId': id, 'body': note, 'authorKind': 'agent', 'author': from.isEmpty ? 'Claude Code' : from});
+    said.add('note posted');
+  }
+  final status = (a['status'] as String? ?? '').trim().toLowerCase();
+  if (status.isNotEmpty) {
+    if (!TaskStatus.columns.contains(status)) {
+      throw RpcError(RpcError.invalidParams, 'Status must be one of ${TaskStatus.columns.join(', ')}.');
+    }
+    await c.call(M.tasksMove, {'id': id, 'status': status});
+    said.add('moved to $status');
+  }
+  if (said.isEmpty) return 'Nothing to change on $key. Pass status, check, uncheck, addDoneWhen or note.';
+  return '$key: ${said.join(', ')}.';
+}
+
+Future<String> _taskStatus(RelayClient c, String key) async {
+  final (project, task) = await _byKey(c, key);
+  final number = task['number'];
   final detail = await c.map(M.tasksGet, {'id': task['id']});
   final b = StringBuffer('${project['key']}-$number · status: ${task['status']}');
   if (task['attention'] != null) b.write(' (${task['attention']})');
