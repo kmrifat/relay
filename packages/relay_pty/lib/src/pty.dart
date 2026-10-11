@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'dart:typed_data';
 
 /// A command running in a pseudo-terminal, through the `relay-pty` helper.
@@ -31,12 +33,13 @@ class Pty {
   /// Looks for `relay-pty` next to the running executable, then in
   /// `$RELAY_PTY`, then `tool/out/relay-pty` in a source checkout.
   static String? findHelper({String? near}) {
+    final name = Platform.isWindows ? 'relay-pty.exe' : 'relay-pty';
     final candidates = [
       Platform.environment['RELAY_PTY'],
-      if (near != null) '$near/relay-pty',
-      '${File(Platform.resolvedExecutable).parent.path}/relay-pty',
-      '${Directory.current.path}/tool/out/relay-pty',
-      '${Directory.current.parent.parent.path}/tool/out/relay-pty',
+      if (near != null) p.join(near, name),
+      p.join(File(Platform.resolvedExecutable).parent.path, name),
+      p.join(Directory.current.path, 'tool', 'out', name),
+      p.join(Directory.current.parent.parent.path, 'tool', 'out', name),
     ];
     for (final c in candidates) {
       if (c != null && File(c).existsSync()) return c;

@@ -92,7 +92,7 @@ void main() {
     final events = await session.events.toList();
     expect(events.where((e) => e.type == 'output').map((e) => e.data['text']), ['working', 'task done']);
     expect(events.last.data['status'], 'turn_done');
-  });
+  }, testOn: '!windows'); // fake CLIs are sh scripts
 
   test('Generic: failure with a limit message sets limitedUntil', () async {
     final a = GenericAdapter(id: 'x', name: 'X', binaries: const ['sh'], defaultArgs: const ['-c', 'echo "Usage limit reached, try again in 2 hours" >&2; exit 1'], color: '#000', letter: 'X');
@@ -100,7 +100,7 @@ void main() {
     final last = (await session.events.toList()).last;
     expect(last.data['status'], 'failed');
     expect(last.data['limitedUntil'], isNotNull);
-  });
+  }, testOn: '!windows'); // fake CLIs are sh scripts
 
   test('summarizeTool and parseLimitReset', () {
     expect(summarizeTool('Bash', {'command': 'flutter   test\n  sync/'}), 'flutter test sync/');
@@ -118,5 +118,5 @@ void main() {
     final found = await AgentRegistry().detect(env: {'PATH': dir.path});
     expect(found.single.adapter, 'claude-code');
     expect(found.single.version, '9.9.9 (Claude Code)');
-  });
+  }, testOn: '!windows'); // fake CLIs are sh scripts
 }

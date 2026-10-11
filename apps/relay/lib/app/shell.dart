@@ -23,6 +23,7 @@ import '../features/task/new_task_sheet.dart';
 import '../features/task/quick_find.dart';
 import '../features/task/task_page.dart';
 import '../ui/widgets.dart';
+import '../ui/platform.dart';
 import 'sidebar.dart';
 import 'theme.dart';
 
@@ -197,8 +198,8 @@ class _ShellState extends ConsumerState<Shell> {
 
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyN, meta: true): () => showNewTaskSheet(context, ref),
-        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): () => showQuickFind(context, ref),
+        Desk.key(LogicalKeyboardKey.keyN): () => showNewTaskSheet(context, ref),
+        Desk.key(LogicalKeyboardKey.keyK): () => showQuickFind(context, ref),
         const SingleActivator(LogicalKeyboardKey.escape): () => ref.read(navProvider.notifier).closeTask(),
       },
       child: Focus(

@@ -119,7 +119,7 @@ class Api {
         final repo = ctx.repo(_s(params, 'id'));
         final url = repo.remoteUrl ?? (throw RpcError(RpcError.invalidParams, '${repo.name} has no remote URL.'));
         final dest = params['dest'] as String? ??
-            p.join(ctx.env['HOME'] ?? ctx.paths.home, 'code', ctx.project(repo.projectId).key.toLowerCase(), repo.name);
+            p.join(ctx.env['HOME'] ?? ctx.env['USERPROFILE'] ?? ctx.paths.home, 'code', ctx.project(repo.projectId).key.toLowerCase(), repo.name);
         await ctx.git.clone(url, dest);
         return store.patch<Repo>(Kind.repo, repo.id, {Repo.pathField(ctx.deviceId): dest}).toJson();
       },
@@ -478,7 +478,8 @@ class Api {
   List<String> _walk(String dir) {
     final out = <String>[];
     for (final e in Directory(dir).listSync(recursive: true, followLinks: false)) {
-      if (e is File) out.add(p.relative(e.path, from: dir));
+      // Always `/`: the app splits on it, on every OS.
+      if (e is File) out.add(p.relative(e.path, from: dir).replaceAll(r'\', '/'));
       if (out.length > 20000) break;
     }
     return out..sort();

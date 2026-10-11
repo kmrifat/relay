@@ -32,6 +32,15 @@ class NativeNotifications {
   }
 
   Future<void> post({required String id, required String title, required String body, Map<String, Object?> info = const {}}) async {
+    if (Platform.isLinux) {
+      // The desktop's notification daemon (libnotify), when there is one.
+      try {
+        await Process.run('notify-send', ['--app-name=Relay', title, body]);
+      } on ProcessException {
+        // No notify-send: the in-app toasts still show.
+      }
+      return;
+    }
     if (!_supported) return;
     try {
       await _channel.invokeMethod('post', {'id': id, 'title': title, 'body': body, 'info': info});

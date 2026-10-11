@@ -7,6 +7,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 
 /// The agent fleet (design T03): CLIs on this Mac, usage, slots, routing.
 class FleetPage extends ConsumerStatefulWidget {
@@ -51,7 +52,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
     return Column(children: [
       Toolbar(
         title: 'Agents',
-        subtitle: '${installed.length} on this Mac · $active running · ${installed.fold<int>(0, (s, a) => s + a.slots)} slots',
+        subtitle: '${installed.length} on ${Desk.thisComputer} · $active running · ${installed.fold<int>(0, (s, a) => s + a.slots)} slots',
         actions: [
           Btn(detecting ? 'Looking…' : 'Find CLIs', icon: LucideIcons.refreshCw, onTap: detecting
               ? null
@@ -68,7 +69,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
         child: Row(children: [
           Expanded(
             child: ListView(padding: const EdgeInsets.all(20), children: [
-              Text('On this Mac · uses the CLIs and plans you already have', style: context.label),
+              Text('On ${Desk.thisComputer} · uses the CLIs and plans you already have', style: context.label),
               const SizedBox(height: 12),
               LayoutBuilder(builder: (context, box) {
                 final cols = box.maxWidth > 760 ? 2 : 1;
@@ -104,7 +105,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
               const SizedBox(height: 10),
               Box(
                 child: Column(children: [
-                  _stepper(context, 'Runs at once on this Mac', int.tryParse(settings['maxConcurrent'] ?? '4') ?? 4, (v) => _set('maxConcurrent', '$v')),
+                  _stepper(context, 'Runs at once on ${Desk.thisComputer}', int.tryParse(settings['maxConcurrent'] ?? '4') ?? 4, (v) => _set('maxConcurrent', '$v')),
                   const Hairline(),
                   _toggle(context, 'Ask before shell & edits', settings['askBeforeShell'] != 'false', (v) => _set('askBeforeShell', '$v')),
                   const Hairline(),
@@ -167,7 +168,7 @@ class _AgentCard extends ConsumerWidget {
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(a.name, style: context.t(14, w: FontWeight.w700)),
-              Text('${(a.binaryPath ?? '').replaceFirst(RegExp(r'^/Users/[^/]+'), '~')}${a.version != null ? ' · ${a.version!.split(' ').first}' : ''}',
+              Text('${Desk.tilde(a.binaryPath ?? '')}${a.version != null ? ' · ${a.version!.split(' ').first}' : ''}',
                   maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, family: mono, color: c.text2)),
             ]),
           ),

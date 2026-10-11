@@ -5,6 +5,7 @@ import 'adapter.dart';
 import 'claude.dart';
 import 'codex.dart';
 import 'generic.dart';
+import 'launch.dart';
 
 /// The user's login-shell environment.
 ///
@@ -16,17 +17,31 @@ class ShellEnv {
   static Future<Map<String, String>> resolve() async {
     if (_cached != null) return _cached!;
     final env = Map.of(Platform.environment);
+    if (Platform.isWindows) {
+      // Windows env names are case-insensitive but Dart's map isn't, and the
+      // key is usually `Path`. Keep one `PATH`.
+      final path = Launch.pathOf(env);
+      env.removeWhere((k, _) => k.toUpperCase() == 'PATH');
+      env['PATH'] = path;
+    }
     if (Platform.isMacOS || Platform.isLinux) {
-      final shell = env['SHELL'] ?? '/bin/zsh';
+      final shell = env['SHELL'] ?? (Platform.isMacOS ? '/bin/zsh' : '/bin/bash');
+      // fish prints $PATH with spaces; ask it for the colon form.
+      final probe = shell.endsWith('fish') ? r'printf "__RELAY_PATH__%s" (string join : $PATH)' : r'printf "__RELAY_PATH__%s" "$PATH"';
       try {
-        final r = await Process.run(shell, ['-ilc', r'printf "__RELAY_PATH__%s" "$PATH"'])
-            .timeout(const Duration(seconds: 5));
+        final r = await Process.run(shell, ['-ilc', probe]).timeout(const Duration(seconds: 5));
         final out = r.stdout as String;
         final i = out.lastIndexOf('__RELAY_PATH__');
         if (i >= 0) env['PATH'] = out.substring(i + 14).trim();
       } catch (_) {}
       final home = env['HOME'] ?? '';
-      final extra = ['$home/.local/bin', '/opt/homebrew/bin', '/usr/local/bin', '$home/.bun/bin', '$home/.cargo/bin'];
+      final extra = [
+        '$home/.local/bin',
+        if (Platform.isMacOS) ...['/opt/homebrew/bin', '/usr/local/bin'],
+        if (Platform.isLinux) ...['/usr/local/bin', '/snap/bin', '$home/.npm-global/bin', '$home/.local/share/pnpm'],
+        '$home/.bun/bin',
+        '$home/.cargo/bin',
+      ];
       final parts = (env['PATH'] ?? '').split(':');
       for (final e in extra) {
         if (!parts.contains(e)) parts.add(e);
@@ -37,22 +52,7 @@ class ShellEnv {
   }
 
   /// Finds [name] on [path] (colon or semicolon separated).
-  static String? which(String name, String path) {
-    final sep = Platform.isWindows ? ';' : ':';
-    final exts = Platform.isWindows ? ['.exe', '.cmd', '.bat', ''] : [''];
-    for (final dir in path.split(sep)) {
-      if (dir.isEmpty) continue;
-      for (final ext in exts) {
-        final f = File('$dir${Platform.pathSeparator}$name$ext');
-        if (f.existsSync()) {
-          if (Platform.isWindows) return f.path;
-          final mode = f.statSync().mode;
-          if (mode & 0x49 != 0) return f.path; // any execute bit
-        }
-      }
-    }
-    return null;
-  }
+  static String? which(String name, String path) => Launch.which(name, path);
 }
 
 /// All adapters Relay knows about.
@@ -74,11 +74,11 @@ class AgentRegistry {
     final found = <DetectedAgent>[];
     for (final a in adapters.values) {
       for (final bin in a.binaries) {
-        final path = ShellEnv.which(bin, e['PATH'] ?? '');
+        final path = ShellEnv.which(bin, Launch.pathOf(e));
         if (path == null) continue;
         String? version;
         try {
-          final r = await Process.run(path, ['--version'], environment: e).timeout(const Duration(seconds: 8));
+          final r = await Launch.run(path, ['--version'], environment: e).timeout(const Duration(seconds: 8));
           version = '${r.stdout}'.trim().split('\n').first;
           if (version.isEmpty) version = null;
         } catch (_) {}

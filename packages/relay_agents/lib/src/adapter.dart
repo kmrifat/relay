@@ -68,6 +68,10 @@ abstract class AgentSession {
   /// Answers a permission request raised as a `permission` event.
   void answerPermission(String requestId, String answer, {String? message});
 
+  /// Whether [pause] works here: it freezes the process tree with
+  /// SIGSTOP, which Windows doesn't have.
+  bool get canPause;
+
   void pause();
   void resume();
 

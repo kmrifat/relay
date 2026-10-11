@@ -19,20 +19,25 @@ class DaemonLauncher {
 
   final RelayPaths paths;
 
-  /// `Contents/Helpers` next to the app's executable, or `$RELAY_HELPERS`.
+  /// Where relayd and relay-pty live: `$RELAY_HELPERS`, else macOS's
+  /// `Relay.app/Contents/Helpers`, else `helpers/` next to the app's
+  /// executable (Windows and Linux bundles, M10).
   String? get helpersDir {
     final env = Platform.environment['RELAY_HELPERS'];
     if (env != null && Directory(env).existsSync()) return env;
     final exe = File(Platform.resolvedExecutable);
-    final helpers = p.join(exe.parent.parent.path, 'Helpers');
-    if (Directory(helpers).existsSync()) return helpers;
+    for (final dir in [p.join(exe.parent.parent.path, 'Helpers'), p.join(exe.parent.path, 'helpers')]) {
+      if (Directory(dir).existsSync()) return dir;
+    }
     return null;
   }
 
+  static String get _exe => Platform.isWindows ? '.exe' : '';
+
   String? get relayBinary {
     final dir = helpersDir;
-    if (dir != null && File(p.join(dir, 'relay')).existsSync()) return p.join(dir, 'relay');
-    return null;
+    final bin = dir == null ? null : p.join(dir, 'relay$_exe');
+    return bin != null && File(bin).existsSync() ? bin : null;
   }
 
   /// Connects, starting relayd first when nothing answers.
@@ -62,7 +67,7 @@ class DaemonLauncher {
       bin,
       ['daemon'],
       mode: ProcessStartMode.detached,
-      environment: {'RELAY_PTY': p.join(p.dirname(bin), 'relay-pty')},
+      environment: {'RELAY_PTY': p.join(p.dirname(bin), 'relay-pty$_exe')},
     );
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     Object? last;

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 /// `relay demo-agent`: a stand-in agent that speaks Claude Code's
 /// stream-json protocol, so Relay can be tried (and tested end to end)
 /// without any AI account. It reads the workspace, asks permission once,
@@ -40,7 +42,7 @@ Future<int> runDemoAgent(List<String> args) async {
     {'type': 'tool_use', 'id': 't1', 'name': 'Bash', 'input': {'command': 'ls'}},
   ]));
   await Future<void>.delayed(delay);
-  final entries = Directory(cwd).listSync().map((e) => e.path.split('/').last).where((n) => !n.startsWith('.')).toList()..sort();
+  final entries = Directory(cwd).listSync().map((e) => p.basename(e.path)).where((n) => !n.startsWith('.')).toList()..sort();
   emit(_toolResult('t1', entries.join('\n')));
   await Future<void>.delayed(delay);
 
@@ -49,13 +51,13 @@ Future<int> runDemoAgent(List<String> args) async {
   for (final e in Directory(cwd).listSync(followLinks: false)) {
     // Repos this task may change are writable worktrees; the rest are
     // read-only snapshots.
-    if (e is Directory && File('${e.path}/.git').existsSync() && e.statSync().mode & 0x80 != 0) targets.add(e.path);
+    if (e is Directory && File(p.join(e.path, '.git')).existsSync() && !File(p.join(e.path, '.relay-snapshot')).existsSync()) targets.add(e.path);
   }
   if (targets.isEmpty) targets.add(cwd);
 
   var turn = 1;
   for (final target in targets) {
-    final rel = target == cwd ? 'RELAY_DEMO.md' : '${target.split('/').last}/RELAY_DEMO.md';
+    final rel = target == cwd ? 'RELAY_DEMO.md' : '${p.basename(target)}/RELAY_DEMO.md';
     final id = 'w$turn';
     final input = {'file_path': rel, 'content': '…'};
     emit(_assistant([

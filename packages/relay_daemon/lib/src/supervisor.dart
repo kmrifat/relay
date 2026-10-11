@@ -495,7 +495,11 @@ class Supervisor {
   }
 
   void pause(String runId) {
-    _live(runId).pause();
+    final s = _live(runId);
+    if (!s.canPause) {
+      throw RpcError(RpcError.invalidParams, 'Pausing an agent isn\'t available on Windows yet. Stop it instead; its work so far stays in the workspace.');
+    }
+    s.pause();
     ctx.store.patch<Run>(Kind.run, runId, {'status': RunStatus.paused});
     ctx.store.appendEvent(runId, RunEventType.status, {'status': 'paused', 'detail': 'Paused by ${ctx.setting('userName', 'you')}'});
   }

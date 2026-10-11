@@ -13,8 +13,8 @@ import 'package:relay_protocol/relay_protocol.dart';
 import 'package:test/test.dart';
 
 final root = Directory.current.parent.parent.path;
-final relayBin = p.join(root, 'tool', 'out', 'relay');
-final ptyBin = p.join(root, 'tool', 'out', 'relay-pty');
+final relayBin = p.join(root, 'tool', 'out', 'relay${Platform.isWindows ? '.exe' : ''}');
+final ptyBin = p.join(root, 'tool', 'out', 'relay-pty${Platform.isWindows ? '.exe' : ''}');
 
 Future<String> repo(String parent, String name, Map<String, String> files) async {
   final git = Git();
@@ -84,7 +84,9 @@ void main() {
 
   test('a bad token is refused', () async {
     final info = DaemonInfo.read(RelayPaths(home))!;
-    final sock = await Socket.connect(InternetAddress(info.socket!, type: InternetAddressType.unix), 0);
+    final sock = info.socket != null
+        ? await Socket.connect(InternetAddress(info.socket!, type: InternetAddressType.unix), 0)
+        : await Socket.connect(InternetAddress.loopbackIPv4, info.port!);
     await expectLater(RelayClient.attach(sock, sock, token: 'wrong'), throwsA(isA<RpcError>()));
     sock.destroy();
   });
@@ -275,7 +277,7 @@ void main() {
       out.write(utf8.decode(base64Decode(e.params['data'] as String)));
     });
     final id = await client.call<String>(M.termOpen, {'path': cwd, 'cols': 80, 'rows': 24});
-    await client.call(M.termInput, {'termId': id, 'text': 'echo relay-$id-ok\n'});
+    await client.call(M.termInput, {'termId': id, 'text': 'echo relay-$id-ok${Platform.isWindows ? '\r' : ''}\n'});
     await waitFor(() async => out.toString().contains('relay-$id-ok') ? true : null, timeout: const Duration(seconds: 15));
     await client.call(M.termClose, {'termId': id});
     await sub.cancel();
@@ -288,7 +290,8 @@ void main() {
     expect(files['files'], contains('lib/main.dart'));
     final f = await client.map(M.fsRead, {'path': p.join(cwd, 'lib', 'main.dart')});
     expect(f['text'], contains('void main'));
-    await expectLater(client.map(M.fsRead, {'path': '/etc/hosts'}), throwsA(isA<RpcError>()));
+    final outside = Platform.isWindows ? r'C:\Windows\win.ini' : '/etc/hosts';
+    await expectLater(client.map(M.fsRead, {'path': outside}), throwsA(isA<RpcError>()));
   });
 
   test('MCP server: agents post progress through relay mcp', () async {

@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
@@ -12,6 +11,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 import '../task/task_bits.dart';
 
 /// An agent you can @mention: this Mac's, or a teammate's shared one.
@@ -396,12 +396,12 @@ class _TaskCard extends ConsumerWidget {
     final c = context.c;
     final data = ref.watch(dataProvider);
     final t = data.get<Task>(Kind.task, taskId);
-    if (t == null) return Text('A task that is not on this Mac yet.', style: context.t(12, color: c.text3));
+    if (t == null) return Text('A task that is not on ${Desk.thisComputer} yet.', style: context.t(12, color: c.text3));
     final run = data.activeRun(t) ?? data.runsOf(t.id).lastOrNull;
     final device = data.get<DeviceInfo>(Kind.device, t.str('runOn'));
     final me = ref.read(clientProvider).hello['deviceId'];
     final remote = t.str('runOn') != null && t.str('runOn') != me;
-    final where = !remote ? 'this Mac' : (device?.person.isNotEmpty ?? false) ? "${device!.person.split(' ').first}'s Mac" : (device?.name ?? 'a teammate\'s Mac');
+    final where = !remote ? Desk.thisComputer : (device?.person.isNotEmpty ?? false) ? "${device!.person.split(' ').first}'s Mac" : (device?.name ?? 'a teammate\'s Mac');
     final agentName = t.assigneeKind != 'agent'
         ? (t.assignee ?? 'Unassigned')
         : remote
@@ -447,14 +447,14 @@ class _FileCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final size = (f['size'] as num?)?.toInt() ?? 0;
-    final where = f['stored'] == 'team' ? 'stored in your team storage · encrypted' : 'on this Mac';
+    final where = f['stored'] == 'team' ? 'stored in your team storage · encrypted' : 'on ${Desk.thisComputer}';
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 320),
       child: Hoverable(
         onTap: () async {
           try {
             final path = (await ref.read(clientProvider).map(M.filesGet, {'messageId': m.id, 'fileId': f['id']}))['path'] as String;
-            await Process.run('open', [path]);
+            await Desk.open(path);
           } on RpcError catch (e) {
             if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
           }
@@ -534,7 +534,7 @@ class _ComposerState extends ConsumerState<_Composer> {
     for (final a in widget.agents) {
       if (!a.id.toLowerCase().startsWith(p) && !a.name.toLowerCase().startsWith(p)) continue;
       if (!seen.add(a.id)) continue;
-      out.add((a.id, '${a.name} · ${a.mine ? 'this Mac' : "${a.owner}'s"}',
+      out.add((a.id, '${a.name} · ${a.mine ? Desk.thisComputer : "${a.owner}'s"}',
           AgentTile(agent: AgentProfile({'color': a.color, 'letter': a.letter}), size: 16)));
     }
     for (final person in data.devices.map((d) => d.person).where((x) => x.isNotEmpty).toSet()) {
@@ -626,7 +626,7 @@ class _ComposerState extends ConsumerState<_Composer> {
               Wrap(spacing: 6, runSpacing: 4, children: [
                 for (final f in files)
                   InputChip(
-                    label: Text(f.split('/').last, style: context.t(11)),
+                    label: Text(Desk.base(f), style: context.t(11)),
                     onDeleted: () => setState(() => files.remove(f)),
                     visualDensity: VisualDensity.compact,
                   ),

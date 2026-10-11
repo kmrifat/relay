@@ -85,7 +85,7 @@ class RelayDaemon {
     if (!Platform.isWindows) await Process.run('chmod', ['700', paths.home]);
     await _ensureSingleInstance();
 
-    final deviceFile = File('${paths.home}/device-id');
+    final deviceFile = File('${paths.home}${Platform.pathSeparator}device-id');
     if (!deviceFile.existsSync()) deviceFile.writeAsStringSync(newToken(12));
     final deviceId = deviceFile.readAsStringSync().trim();
 
@@ -154,6 +154,12 @@ class RelayDaemon {
       // daemon.json holds the token; only this user may read it.
       await Process.run('chmod', ['600', paths.daemonInfo]);
       if (RelayPaths.usesUnixSocket) await Process.run('chmod', ['600', paths.socket]);
+    } else {
+      // Windows: drop inherited access; only this user (and SYSTEM) may read it.
+      final user = Platform.environment['USERNAME'];
+      if (user != null) {
+        await Process.run('icacls', [paths.daemonInfo, '/inheritance:r', '/grant:r', '$user:F', '/grant:r', 'SYSTEM:F']);
+      }
     }
 
     supervisor.startScheduler();

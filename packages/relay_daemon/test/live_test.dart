@@ -40,7 +40,7 @@ void main() {
   setUpAll(() async {
     if (!ready) return;
     tmp = Directory.systemTemp.createTempSync('relay_live_');
-    relayBin = p.join(tmp.path, 'relay');
+    relayBin = p.join(tmp.path, Platform.isWindows ? 'relay.exe' : 'relay');
     final r = await Process.run('dart', ['compile', 'exe', 'bin/relay.dart', '-o', relayBin]);
     expect(r.exitCode, 0, reason: '${r.stderr}');
     worker = await Process.start('node', ['test/serve.mjs', 'setup-secret'], workingDirectory: workerDir);

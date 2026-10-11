@@ -30,7 +30,7 @@ void main() {
   setUpAll(() async {
     tmp = Directory.systemTemp.createTempSync('relay_sync_d_');
     // Its own binary: daemon_test may be compiling tool/out/relay in parallel.
-    relayBin = p.join(tmp.path, 'relay');
+    relayBin = p.join(tmp.path, Platform.isWindows ? 'relay.exe' : 'relay');
     final r = await Process.run('dart', ['compile', 'exe', 'bin/relay.dart', '-o', relayBin]);
     expect(r.exitCode, 0, reason: '${r.stderr}');
     (da, a) = await boot('ann');

@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -31,6 +30,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 import '../task/new_task_sheet.dart';
 import 'terminal_panel.dart';
 
@@ -160,7 +160,7 @@ class _CodeViewState extends ConsumerState<CodeView> {
     final agent = data.get<AgentProfile>(Kind.agent, root?.agentId);
 
     return CallbackShortcuts(
-      bindings: {const SingleActivator(LogicalKeyboardKey.keyS, meta: true): save},
+      bindings: {Desk.key(LogicalKeyboardKey.keyS): save},
       child: Row(children: [
         // Explorer.
         Container(
@@ -196,13 +196,11 @@ class _CodeViewState extends ConsumerState<CodeView> {
                 Builder(builder: (context) => IconBtn(LucideIcons.externalLink, size: 12, tooltip: 'Open in…', onTap: root == null ? null : () async {
                   final box = context.findRenderObject() as RenderBox;
                   final app = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
-                    ('Visual Studio Code', 'VS Code', null),
-                    ('Cursor', 'Cursor', null),
-                    ('Zed', 'Zed', null),
-                    ('Finder', 'Finder', null),
+                    for (final e in Desk.editors) (e, e == 'Visual Studio Code' ? 'VS Code' : e, null),
+                    (Desk.fileManager, Desk.fileManager, null),
                   ]);
                   if (app == null) return;
-                  final r = await Process.run('open', [if (app != 'Finder') ...['-a', app], root!.path]);
+                  final r = await Desk.openIn(app, root!.path);
                   if (r.exitCode != 0 && context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$app is not installed')));
                   }
@@ -315,7 +313,7 @@ class _CodeViewState extends ConsumerState<CodeView> {
           Text('TERMINAL', style: context.t(11, w: FontWeight.w700)),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(takeoverTerm != null ? '· you took over from ${agent?.name ?? 'the agent'}' : '· zsh in ${root!.path.replaceFirst(RegExp(r'^/Users/[^/]+'), '~')}',
+            child: Text(takeoverTerm != null ? '· you took over from ${agent?.name ?? 'the agent'}' : '· ${Desk.shellName} in ${Desk.tilde(root!.path)}',
                 maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: c.text3)),
           ),
           IconBtn(LucideIcons.plus, size: 13, tooltip: 'New terminal', onTap: () => setState(() {

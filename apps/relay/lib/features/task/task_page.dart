@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -10,6 +9,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 import 'diff_dialog.dart';
 import 'run_pane.dart';
 import 'task_bits.dart';
@@ -419,7 +419,7 @@ class _ChangeSet extends ConsumerWidget {
               Btn('Diff', small: true, icon: LucideIcons.gitCompare, onTap: () => showDiffDialog(context, ref, ch, repo)),
               const SizedBox(width: 6),
               if (ch.prUrl != null)
-                Btn('Open PR', small: true, icon: LucideIcons.externalLink, onTap: () => Process.run('open', [ch.prUrl!]))
+                Btn('Open PR', small: true, icon: LucideIcons.externalLink, onTap: () => Desk.open(ch.prUrl!))
               else if (repo?.remoteUrl != null && ch.status == 'ready')
                 Btn('Push', small: true, icon: LucideIcons.upload, onTap: () async {
                   try {
@@ -428,7 +428,7 @@ class _ChangeSet extends ConsumerWidget {
                     if (res.first['ok'] != true) {
                       showError(context, '${res.first['error']}');
                     } else if (res.first['url'] != null) {
-                      await Process.run('open', [res.first['url'] as String]);
+                      await Desk.open(res.first['url'] as String);
                     }
                   } on RpcError catch (e) {
                     if (context.mounted) showError(context, e.message);
