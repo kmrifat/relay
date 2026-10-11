@@ -16,6 +16,8 @@ import '../features/ask/ask_palette.dart';
 import '../features/channel/channel_page.dart';
 import '../features/code/code_session.dart';
 import '../features/help/keyboard_map.dart';
+import '../features/home/activity_page.dart';
+import '../features/home/mission_control.dart';
 import '../features/onboarding/onboarding_page.dart';
 import '../features/agents/fleet_page.dart';
 import '../features/project/project_dialogs.dart';
@@ -151,7 +153,8 @@ class _ShellState extends ConsumerState<Shell> {
     return {
       Cmd.quickFind: () => showQuickFind(context, ref),
       Cmd.askAgent: () => showAskPalette(context, ref),
-      Cmd.home: () => n.page(AppPage.inbox),
+      Cmd.home: () => n.page(AppPage.home),
+      Cmd.activity: () => n.page(AppPage.activity),
       for (var i = 0; i < data.projects.length && i < 9; i++) Cmd.project(i): () => n.project(data.projects[i].id),
       Cmd.needsYou: () => n.page(AppPage.waiting),
       Cmd.agents: () => n.page(AppPage.agents),
@@ -267,6 +270,8 @@ class _ShellState extends ConsumerState<Shell> {
         AppPage.settings => const SettingsPage(),
         AppPage.channel => nav.channelId == null ? const SettingsPage() : ChannelPage(channelId: nav.channelId!),
         AppPage.team => nav.teamId == null ? const FleetPage() : TeamPage(teamId: nav.teamId!, agentId: nav.agentId),
+        AppPage.home => const MissionControl(),
+        AppPage.activity => const ActivityPage(),
       };
     }
 

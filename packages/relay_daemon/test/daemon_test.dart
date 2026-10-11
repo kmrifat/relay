@@ -449,6 +449,11 @@ void main() {
       }
     }(), throwsA(isA<RpcError>()));
     await client.call(M.settingsSet, {'values': {'maxAgentTasksPerHour': '20', 'maxAgentExchanges': '12', 'askBeforeShell': 'true'}});
+    // The activity feed has it all: messages between agents, handoffs, QA's report, runs.
+    final feed = await client.list(M.activityList, {'projectId': pid});
+    final kinds = feed.map((e) => e['kind']).toSet();
+    expect(kinds, containsAll(['agent-message', 'handoff', 'report', 'run']));
+    expect(feed.firstWhere((e) => e['kind'] == 'agent-message')['toName'], isNotNull);
     for (final r in (await client.list(M.runsList)).where((r) => RunStatus.isActive('${r['status']}'))) {
       await client.call(M.runsStop, {'runId': r['id']});
     }

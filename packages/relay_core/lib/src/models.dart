@@ -108,6 +108,14 @@ class Project extends Entity {
   /// Repo ids in merge order (first merges first). Repos in the same step
   /// share a [Repo.mergeStep].
   int get position => intOr('position', 0);
+
+  /// What the product is for right now (design P01), e.g. "Checkout v1".
+  String get goal => str('goal') ?? '';
+
+  /// The milestone being worked towards: tasks with this [Task.milestone]
+  /// count towards it.
+  String get milestone => str('milestone') ?? '';
+  DateTime? get milestoneDue => _date(data['milestoneDue']);
 }
 
 /// One git repository in a project.
@@ -270,6 +278,13 @@ class Task extends Entity {
   String? get model => str('model');
   String? get modelFor => str('modelFor');
   String? get effort => str('effort');
+
+  /// The epic this task belongs to (a task with [isEpic]).
+  String? get parentId => str('parentId');
+  bool get isEpic => boolOr('epic', false);
+
+  /// The project milestone it counts towards (by name).
+  String? get milestone => str('milestone');
 
   /// Branch used in every repo the task touches.
   String branchName(String projectKey) => '${projectKey.toLowerCase()}-$number';

@@ -49,7 +49,7 @@ class RelayMenus extends ConsumerWidget {
         ]),
         PlatformMenu(label: 'File', menus: [item(Cmd.newTask)]),
         PlatformMenu(label: 'Go', menus: [
-          PlatformMenuItemGroup(members: [item(Cmd.home), item(Cmd.needsYou), item(Cmd.agents)]),
+          PlatformMenuItemGroup(members: [item(Cmd.home), item(Cmd.needsYou), item(Cmd.activity), item(Cmd.agents)]),
           if (projects.isNotEmpty)
             PlatformMenuItemGroup(members: [
               for (var i = 0; i < projects.length && i < 9; i++) item(Cmd.project(i), label: projects[i].name),

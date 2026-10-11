@@ -90,14 +90,18 @@ class Sidebar extends ConsumerWidget {
         const SizedBox(height: 14),
         Expanded(
           child: ListView(padding: EdgeInsets.zero, children: [
+            row(icon: LucideIcons.layoutDashboard, iconColor: c.accentIcon, label: 'Mission control',
+                selected: !onTask && nav.page == AppPage.home, onTap: () => n.page(AppPage.home)),
             row(icon: LucideIcons.inbox, iconColor: c.accentIcon, label: 'Inbox', count: count(AppPage.inbox),
                 selected: !onTask && nav.page == AppPage.inbox, onTap: () => n.page(AppPage.inbox)),
             row(icon: LucideIcons.zap, iconColor: c.success, label: 'Running now', count: count(AppPage.running),
                 selected: !onTask && nav.page == AppPage.running, onTap: () => n.page(AppPage.running)),
             row(icon: LucideIcons.gitPullRequest, iconColor: c.warning, label: 'Needs review', count: count(AppPage.review),
                 selected: !onTask && nav.page == AppPage.review, onTap: () => n.page(AppPage.review)),
-            row(icon: LucideIcons.triangleAlert, iconColor: c.danger, label: 'Waiting on you', count: count(AppPage.waiting),
+            row(icon: LucideIcons.triangleAlert, iconColor: c.danger, label: 'Needs you', count: count(AppPage.waiting),
                 selected: !onTask && nav.page == AppPage.waiting, onTap: () => n.page(AppPage.waiting)),
+            row(icon: LucideIcons.activity, iconColor: c.success, label: 'Activity',
+                selected: !onTask && nav.page == AppPage.activity, onTap: () => n.page(AppPage.activity)),
             const SizedBox(height: 14),
             _Header('Projects', onAdd: () => showNewProjectDialog(context, ref)),
             for (final p in data.projects) ...[

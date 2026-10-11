@@ -63,6 +63,7 @@ abstract final class M {
   static const plansPropose = 'plans.propose';
   static const plansApprove = 'plans.approve';
   static const plansReject = 'plans.reject';
+  static const activityList = 'activity.list';
   static const rulesList = 'rules.list';
   static const rulesSave = 'rules.save';
   static const rulesDelete = 'rules.delete';

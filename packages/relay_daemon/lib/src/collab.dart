@@ -164,6 +164,10 @@ class Collab {
         if (assignee != null) ...{'assigneeKind': 'agent', 'assignee': assignee.id},
         'dependsOn': after,
         'status': TaskStatus.backlog,
+        // The plan belongs to the epic it was made for, and to the
+        // milestone the product is working towards.
+        'parentId': from.isEpic ? from.id : from.parentId,
+        if (ctx.project(from.projectId).milestone.isNotEmpty) 'milestone': ctx.project(from.projectId).milestone,
         'planId': planId,
         'draft': true,
       }));

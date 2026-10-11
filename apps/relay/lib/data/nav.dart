@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 enum ProjectView { board, list, timeline, git, code, repos }
 
 /// Smart lists in the sidebar, plus the non-project pages.
-enum AppPage { project, inbox, running, review, waiting, agents, settings, channel, team }
+enum AppPage { project, inbox, running, review, waiting, agents, settings, channel, team, home, activity }
 
 class NavState {
   const NavState({

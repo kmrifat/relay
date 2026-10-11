@@ -257,6 +257,7 @@ class Api {
         return supervisor.collab.proposePlan(agent, ctx.task(_s(p, 'fromTask')), p['summary'] as String? ?? '', ((p['tasks'] as List?) ?? const []).map((e) => (e as Map).cast<String, Object?>()).toList());
       },
       M.plansApprove: (p) => supervisor.collab.approvePlan(_s(p, 'planId')),
+      M.activityList: (p) => activity(ctx, projectId: p['projectId'] as String?, limit: (p['limit'] as num?)?.toInt() ?? 100),
       M.plansReject: (p) {
         supervisor.collab.rejectPlan(_s(p, 'planId'));
         return true;
@@ -636,4 +637,72 @@ Future<List<Map<String, Object?>>> detectAgents(DaemonContext ctx) async {
   }
   Teams(ctx).syncRuntimes();
   return [for (final d in found) d.toJson()];
+}
+
+/// What happened lately (M15-04), newest first: agents messaging each other,
+/// agent notes and reports, handoffs, agents posting in channels, and runs
+/// that ended.
+List<Map<String, Object?>> activity(DaemonContext ctx, {String? projectId, int limit = 100}) {
+  final store = ctx.store;
+  final since = DateTime.now().toUtc().subtract(const Duration(days: 2));
+  String? projectOf(String? taskId) => taskId == null ? null : store.get<Task>(Kind.task, taskId)?.projectId;
+  String? key(String? taskId) {
+    final t = taskId == null ? null : store.get<Task>(Kind.task, taskId);
+    return t == null ? null : ctx.taskKey(t);
+  }
+
+  final out = <Map<String, Object?>>[];
+  for (final c in store.list<Comment>(Kind.comment)) {
+    if (!c.createdAt.isAfter(since) || c.authorKind == 'person') continue;
+    final kind = c.to != null
+        ? 'agent-message'
+        : c.data['report'] != null
+            ? 'report'
+            : c.authorKind == 'system'
+                ? 'handoff'
+                : 'note';
+    out.add({
+      'kind': kind,
+      'at': c.createdAt.toIso8601String(),
+      'taskId': c.data['taskId'],
+      'key': key(c.data['taskId'] as String?),
+      'projectId': projectOf(c.data['taskId'] as String?),
+      'from': c.data['agentId'] ?? c.author,
+      'fromName': c.author,
+      'to': c.to,
+      'toName': c.to == null ? null : ctx.agent(c.to!)?.name ?? c.to,
+      'text': c.body,
+    });
+  }
+  for (final m in store.list<Message>(Kind.message)) {
+    if (m.authorKind != 'agent' || !m.createdAt.isAfter(since)) continue;
+    out.add({
+      'kind': 'post',
+      'at': m.createdAt.toIso8601String(),
+      'taskId': m.taskId,
+      'key': key(m.taskId),
+      'projectId': store.get<Channel>(Kind.channel, m.channelId)?.projectId,
+      'fromName': m.author,
+      'channelId': m.channelId,
+      'text': m.body,
+    });
+  }
+  for (final r in store.list<Run>(Kind.run)) {
+    final ended = r.endedAt;
+    if (ended == null || !ended.isAfter(since)) continue;
+    out.add({
+      'kind': 'run',
+      'at': ended.toIso8601String(),
+      'taskId': r.taskId,
+      'key': key(r.taskId),
+      'projectId': projectOf(r.taskId),
+      'from': r.agentId,
+      'fromName': ctx.agent(r.agentId)?.name ?? r.agentId,
+      'status': r.status,
+      'text': r.summary ?? r.error ?? r.status,
+    });
+  }
+  final mine = projectId == null ? out : out.where((e) => e['projectId'] == projectId).toList();
+  mine.sort((a, b) => '${b['at']}'.compareTo('${a['at']}'));
+  return mine.take(limit).toList();
 }
