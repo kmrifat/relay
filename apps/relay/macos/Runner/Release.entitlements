@@ -2,7 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Not sandboxed (ADR-0001): the app starts relayd, which runs agent
+	     CLIs and git outside any container, and talks to it over a Unix
+	     socket in ~/Library/Application Support/Relay. Distributed with
+	     Developer ID, not the Mac App Store. -->
 	<key>com.apple.security.app-sandbox</key>
+	<false/>
+	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
 </dict>
 </plist>

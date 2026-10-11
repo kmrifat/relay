@@ -1,6 +1,6 @@
 # ADR-0001: Flutter UI + headless Dart daemon (`relayd`), shipped as one app
 
-- Status: Proposed (2026-10-11). Becomes Accepted when the M0 spike meets the performance budget.
+- Status: Accepted (2026-10-11). The M0 build met the performance budget; see Measured below.
 
 ## Context
 
@@ -60,6 +60,19 @@ Options considered:
 | relayd per active run | < 10 MB on top of the agent process itself |
 | Run output to screen | Batched, at most 30 frames/s, never one repaint per line |
 | Cold start to board visible | < 1.0 s (macOS, release) |
+
+## Measured (M0-07, 2026-10-11)
+
+M1 Pro, macOS 27, release build, board open, no agent working, `tool/perf_check.sh 60`:
+
+| Process | CPU (60 s avg) | RSS | Budget |
+|---|---|---|---|
+| Relay app | 0.18% | 122 MB | < 1%, < 150 MB ✓ |
+| relayd | 0.03% | 12 MB | < 1%, < 30 MB ✓ |
+
+Notes from the build:
+- On macOS and Linux a Unix socket path is limited to about 104 bytes. When `$RELAY_HOME/relay.sock` would be longer, relayd uses `/tmp/relay-<hash>.sock`. The socket is mode 0600, and clients still need the token from `daemon.json` (also 0600).
+- The app is not sandboxed. It starts relayd from `Contents/Helpers/relay` (detached) and talks to it over the socket.
 
 ## Consequences
 

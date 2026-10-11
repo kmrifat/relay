@@ -131,6 +131,11 @@ class RelayDaemon {
       port: RelayPaths.usesUnixSocket ? null : _server!.port,
       startedAt: startedAt,
     ).toJson()));
+    if (!Platform.isWindows) {
+      // daemon.json holds the token; only this user may read it.
+      await Process.run('chmod', ['600', paths.daemonInfo]);
+      if (RelayPaths.usesUnixSocket) await Process.run('chmod', ['600', paths.socket]);
+    }
 
     supervisor.startScheduler();
     _wireEvents();

@@ -117,7 +117,18 @@ class RelayPaths {
 
   final String home;
 
-  String get socket => '$home/relay.sock';
+  /// The Unix socket path. macOS and Linux cap these at about 104 bytes,
+  /// so a long home folder falls back to a short path in /tmp named after
+  /// it. The socket still needs the token from daemon.json (mode 0600).
+  String get socket {
+    final p = '$home/relay.sock';
+    if (utf8.encode(p).length <= 100) return p;
+    var h = 0x811c9dc5;
+    for (final b in utf8.encode(home)) {
+      h = ((h ^ b) * 0x01000193) & 0xffffffff;
+    }
+    return '/tmp/relay-${h.toRadixString(16)}.sock';
+  }
   String get database => '$home/relay.db';
 
   /// `{pid, version, protocol, socket|port, token, startedAt}` written by relayd.
