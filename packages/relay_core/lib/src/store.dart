@@ -353,4 +353,6 @@ class Store {
     'INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value',
     [key, value],
   );
+
+  void deleteMeta(String key) => _db.execute('DELETE FROM meta WHERE key = ?', [key]);
 }

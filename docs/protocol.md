@@ -53,6 +53,9 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `term.open` | `{path, cols, rows, runId?}` | terminal id |
 | `term.input / resize / close` | `{termId, text \| data(base64)}` / `{termId, cols, rows}` / `{termId}` | true |
 | `term.takeover` | `{runId}` | pauses the agent and opens a shell in its workspace |
+| `term.list` | – | open terminals `[{id, cwd, command, runId?, openedAt}]`; they live as long as relayd |
+| `term.attach` | `{termId}` | `{id, cwd, command, …, data(base64)}`: the last 256 KB of output. Apply `term.output` that arrives after the answer; what came before is already in `data` |
+| `ui.get` / `ui.set` | `{key}` / `{key, value \| null}` | this device's UI state (open tabs, saved terminal commands), up to 256 KB a key; never synced |
 | `sync.status / test / createTeam / invite / join / now / revoke / leave` | see [format/sync.md §6](format/sync.md#6-api-relayd) | team sync; status adds `live`, `online` (device ids in the Worker room) |
 | `sync.pairPhone / pair` | — / `{code}` | `{code, macName}` / status (phone joins as the Mac's companion) |
 | `push.config / status / register` | `{keyId, teamId, bundleId?, p8}` / — / `{token, sandbox}` (phone) | phone push through the team Worker ([format/worker.md §5](format/worker.md#5-phones-m8)) |

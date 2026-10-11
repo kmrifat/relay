@@ -428,6 +428,20 @@ class Api {
         await terminals.close(_s(p, 'termId'));
         return true;
       },
+      M.termList: (_) => terminals.list(),
+      M.termAttach: (p) => terminals.attach(_s(p, 'termId')),
+      M.uiGet: (p) => store.meta('ui.${_s(p, 'key')}'),
+      M.uiSet: (p) {
+        final key = _s(p, 'key');
+        final value = p['value'] as String?;
+        if (value == null) {
+          store.deleteMeta('ui.$key');
+        } else {
+          if (value.length > 256 * 1024) throw RpcError(RpcError.invalidParams, 'UI state is limited to 256 KB.');
+          store.setMeta('ui.$key', value);
+        }
+        return true;
+      },
       M.termTakeover: (p) async {
         // Pause the agent and open a shell in its workspace.
         final run = ctx.run(_s(p, 'runId'));

@@ -431,7 +431,7 @@ Future<T?> showMenuAt<T>(BuildContext context, Offset at, List<(T, String, IconD
         height: 30,
         child: Row(children: [
           if (icon != null) ...[Icon(icon, size: 13, color: context.c.text2), const SizedBox(width: 8)],
-          Text(label, style: context.t(13)),
+          Flexible(child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(13))),
         ]),
       ),
   ],
