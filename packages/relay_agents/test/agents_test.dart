@@ -119,4 +119,16 @@ void main() {
     expect(found.single.adapter, 'claude-code');
     expect(found.single.version, '9.9.9 (Claude Code)');
   }, testOn: '!windows'); // fake CLIs are sh scripts
+
+  test('signInHint spots signed-out CLIs and nothing else', () {
+    expect(
+      signInHint('claude-code', 'Claude Code', 'Failed to authenticate: OAuth session expired and could not be refreshed'),
+      'Claude Code is signed out. Run `claude` in a terminal and type /login, then run the task again.',
+    );
+    expect(signInHint('codex', 'Codex', 'Error: Not logged in'), contains('codex login'));
+    expect(signInHint('aider', 'Aider', 'Invalid API key provided'), contains('API key'));
+    expect(signInHint('my-cli', 'Mine', 'authentication_error: 401'), 'Mine is signed out. Sign in to it in a terminal, then run the task again.');
+    expect(signInHint('claude-code', 'Claude Code', 'exit code 1'), isNull);
+    expect(signInHint('claude-code', 'Claude Code', 'Tests failed: 3 of 40'), isNull);
+  });
 }

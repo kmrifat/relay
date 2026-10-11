@@ -154,3 +154,37 @@ DateTime? parseLimitReset(String text, {DateTime? now}) {
   }
   return n.add(const Duration(hours: 1));
 }
+
+/// When a failed run's error means the CLI isn't signed in to its account
+/// ("OAuth session expired", "Not logged in", "Invalid API key"), what the
+/// person should do about it. Null for any other failure.
+String? signInHint(String adapter, String agentName, String error) {
+  final lower = error.toLowerCase();
+  const signs = [
+    'failed to authenticate',
+    'authentication_error',
+    'authentication failed',
+    'not logged in',
+    'not signed in',
+    'please run /login',
+    'please log in',
+    'oauth session',
+    'oauth token',
+    'invalid api key',
+    'invalid x-api-key',
+    'incorrect api key',
+    'missing api key',
+    'no api key',
+    'api key not',
+  ];
+  if (!signs.any(lower.contains)) return null;
+  final fix = switch (adapter) {
+    'claude-code' => 'Run `claude` in a terminal and type /login',
+    'codex' => 'Run `codex login` in a terminal',
+    'gemini' => 'Run `gemini` in a terminal and sign in',
+    'opencode' => 'Run `opencode auth login` in a terminal',
+    'aider' => 'Set its API key (for example ANTHROPIC_API_KEY or OPENAI_API_KEY) in your shell profile',
+    _ => 'Sign in to it in a terminal',
+  };
+  return '$agentName is signed out. $fix, then run the task again.';
+}
