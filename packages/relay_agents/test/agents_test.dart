@@ -80,6 +80,29 @@ void main() {
     expect(auto, isNot(contains('--permission-prompt-tool')));
   });
 
+  test('model and effort reach each CLI, and nothing is passed when unset', () {
+    final claude = ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', model: 'haiku', effort: 'low'));
+    expect(claude, containsAllInOrder(['--model', 'haiku', '--effort', 'low']));
+    expect(ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/')), isNot(contains('--effort')));
+    expect(ClaudeCodeAdapter().efforts, ['low', 'medium', 'high', 'xhigh', 'max']);
+    expect(ClaudeCodeAdapter().models.map((m) => m.id), containsAll(['opus', 'sonnet', 'haiku']));
+
+    final codex = CodexAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', model: 'gpt-5-codex', effort: 'high'));
+    expect(codex, containsAllInOrder(['--model', 'gpt-5-codex', '-c', 'model_reasoning_effort="high"']));
+    expect(codex.last, 'p');
+    expect(CodexAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/')), isNot(contains('-c')));
+
+    // Generic templates drop a placeholder that has no value, with its flag.
+    final aider = aiderAdapter();
+    expect(GenericAdapter.fill(aider.defaultArgs, RunSpec(prompt: 'fix it', cwd: '/')),
+        ['--message', 'fix it', '--yes-always', '--no-pretty', '--no-stream']);
+    expect(GenericAdapter.fill(aider.defaultArgs, RunSpec(prompt: 'fix it', cwd: '/', model: 'deepseek', effort: 'high')),
+        containsAllInOrder(['--model', 'deepseek', '--reasoning-effort', 'high']));
+    expect(GenericAdapter.fill(geminiAdapter().defaultArgs, RunSpec(prompt: 'x', cwd: '/', model: 'gemini-pro')), ['-p', 'x', '--yolo', '-m', 'gemini-pro']);
+    expect(GenericAdapter.fill(openCodeAdapter().defaultArgs, RunSpec(prompt: 'x', cwd: '/')), ['run', 'x']);
+    expect(geminiAdapter().efforts, isEmpty);
+  });
+
   test('Claude Code args: relay MCP tools are pre-allowed, the workspace is added', () {
     final args = ClaudeCodeAdapter.argsFor(RunSpec(
       prompt: 'p',

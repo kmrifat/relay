@@ -207,13 +207,27 @@ class Supervisor {
 
   // ---------------------------------------------------------------- runs
 
-  Future<Run> startRun(String taskId, {String? agentId, String? extraPrompt}) async {
+  /// The model and effort a run starts with. Most specific first: this run
+  /// ([model], [effort]), the pipeline step, the task, then the agent. A
+  /// task's model counts only for the CLI it was picked for, and an effort
+  /// the CLI doesn't have is skipped rather than passed as a bad flag.
+  (String?, String?) modelFor(Task task, int step, AgentProfile agent, AgentAdapter adapter, {String? model, String? effort}) {
+    String? pick(List<String?> xs) => xs.map((x) => x?.trim()).where((x) => x != null && x.isNotEmpty).firstOrNull;
+    final s = step >= 0 ? task.pipeline[step] : null;
+    final taskModel = task.modelFor == null || task.modelFor == agent.adapter ? task.model : null;
+    final m = pick([model, s?.model, taskModel, agent.model]);
+    final e = pick([for (final x in [effort, s?.effort, task.effort, agent.effort]) if (adapter.efforts.contains(x?.trim())) x]);
+    return (m, e);
+  }
+
+  Future<Run> startRun(String taskId, {String? agentId, String? extraPrompt, String? model, String? effort}) async {
     final task = ctx.task(taskId);
     final chosen = agentId ?? pickAgent(task);
     if (chosen == null) throw RpcError(RpcError.invalidParams, 'No agent available for ${ctx.taskKey(task)}');
     final agent = ctx.agent(chosen) ?? (throw RpcError(RpcError.notFound, 'No agent $chosen'));
     final adapter = ctx.registry[agent.adapter] ?? (throw RpcError(RpcError.notFound, 'No adapter ${agent.adapter}'));
     final step = _currentStep(task);
+    final (useModel, useEffort) = modelFor(task, step, agent, adapter, model: model, effort: effort);
 
     final cwd = await workspaces.prepare(task);
     final prompt = buildPrompt(task, step, cwd, agent, extra: extraPrompt);
@@ -226,6 +240,8 @@ class Supervisor {
       'workspacePath': cwd,
       'prompt': prompt,
       'pipelineStep': step,
+      'model': ?useModel,
+      'effort': ?useEffort,
       'startedAt': DateTime.now().toUtc().toIso8601String(),
     });
     ctx.store.patch<Task>(Kind.task, task.id, {
@@ -248,7 +264,8 @@ class Supervisor {
         prompt: prompt,
         cwd: cwd,
         binary: agent.binaryPath,
-        model: agent.model,
+        model: useModel,
+        effort: useEffort,
         environment: {...ctx.env, 'RELAY_RUN': run.id, 'RELAY_TASK': ctx.taskKey(task)},
         mcpConfigPath: mcpPath,
         // A single-repo task starts in its repo; the workspace around it
@@ -257,6 +274,7 @@ class Supervisor {
         argsTemplate: (agent.data['argsTemplate'] as List?)?.cast<String>(),
         resumeSessionId: extraPrompt != null && previous.isNotEmpty ? previous.last.sessionId : null,
         autoApprove: !ctx.boolSetting('askBeforeShell', true),
+        readOnly: task.str('ask') != null,
       ));
     } catch (e) {
       await _finish(run.id, RunStatus.failed, error: 'Could not start ${agent.name}: $e');
@@ -274,7 +292,8 @@ class Supervisor {
       });
     }
     ctx.store.patch<Run>(Kind.run, run.id, {'status': RunStatus.running});
-    ctx.store.appendEvent(run.id, RunEventType.status, {'status': 'running', 'detail': 'Started ${agent.name} in $cwd'});
+    final using = [?useModel, if (useEffort != null) 'effort $useEffort'].join(', ');
+    ctx.store.appendEvent(run.id, RunEventType.status, {'status': 'running', 'detail': 'Started ${agent.name}${using.isEmpty ? '' : ' ($using)'} in $cwd'});
     unawaited(_pump(run.id, session));
     _broadcastAgentState();
     return ctx.run(run.id);
@@ -326,8 +345,10 @@ class Supervisor {
       ..writeln('## Workspace')
       ..writeln('You are in `$cwd`.');
     if (touched.length > 1 || others.isNotEmpty) {
-      b.writeln('Repos you may change (worktrees on branch `${task.branchName(project.key)}`): '
-          '${touched.map((r) => '`${r.name}/`').join(', ')}.');
+      if (touched.isNotEmpty) {
+        b.writeln('Repos you may change (worktrees on branch `${task.branchName(project.key)}`): '
+            '${touched.map((r) => '`${r.name}/`').join(', ')}.');
+      }
       if (others.isNotEmpty) {
         b.writeln('Read-only for this task: ${others.map((r) => '`${r.name}/`').join(', ')}.');
       }
@@ -343,13 +364,24 @@ class Supervisor {
         b.writeln('- ${c.author}: ${c.body.replaceAll('\n', ' ')}');
       }
     }
-    b
-      ..writeln()
-      ..writeln('## When you finish')
-      ..writeln('Commit your changes in each repo you changed, with a message ending in:')
-      ..writeln('Relay-Task: $key')
-      ..writeln('Relay-Agent: ${agent.id}')
-      ..writeln('Then reply with a two-sentence summary of what you did.');
+    final ask = task.str('ask');
+    if (ask != null) {
+      b
+        ..writeln()
+        ..writeln('## This is a question, not a change')
+        ..writeln('Every repo here is a read-only copy. Read what you need; don\'t edit files or commit.')
+        ..writeln(ask == 'plan'
+            ? 'Reply with a plan: the steps in order, which repo each touches, and the tasks you would make, each with a title and "done when" checks.'
+            : 'Reply with the answer in your final message; it is posted in the channel. Keep it short and point to files by path.');
+    } else {
+      b
+        ..writeln()
+        ..writeln('## When you finish')
+        ..writeln('Commit your changes in each repo you changed, with a message ending in:')
+        ..writeln('Relay-Task: $key')
+        ..writeln('Relay-Agent: ${agent.id}')
+        ..writeln('Then reply with a two-sentence summary of what you did.');
+    }
     if (ctx.relayBinary != null) {
       b.writeln('You have `relay` MCP tools to post progress, ask the team a question, or message another agent on this task.');
     }
@@ -455,6 +487,15 @@ class Supervisor {
       ctx.notice('Could not refresh ${ctx.taskKey(task)}: $e', level: 'warning');
     }
     final fresh = ctx.task(task.id);
+    // A question is over once answered (or not): it never waits for review.
+    if (fresh.str('ask') != null && !requeue) {
+      if (status == RunStatus.done && summary != null) {
+        ctx.store.create<Comment>(Kind.comment, {'taskId': task.id, 'authorKind': 'agent', 'author': ctx.agent(run.agentId)?.name ?? run.agentId, 'agentId': run.agentId, 'body': summary});
+      }
+      ctx.store.patch<Task>(Kind.task, task.id, {'status': TaskStatus.done, 'activeRunId': null, 'attention': null, 'lastError': status == RunStatus.done ? null : error});
+      unawaited(tick());
+      return;
+    }
     if (status == RunStatus.done) {
       if (summary != null) {
         ctx.store.create<Comment>(Kind.comment, {

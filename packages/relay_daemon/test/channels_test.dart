@@ -127,6 +127,51 @@ void main() {
     expect((await c.list(M.channelsList)).firstWhere((x) => x['id'] == chId)['unread'], 0);
   });
 
+  test('the composer picker: options reach the task; "just answer" replies in the thread with no board card', () async {
+    final project = (await c.list(M.projectsList)).first;
+    final chId = Channel.idFor(project['id'] as String);
+    final repos = await c.list(M.reposList, {'projectId': project['id']});
+
+    // Plan options travel with a task-mode message to its task.
+    final made = await c.map(M.messagesPost, {
+      'channelId': chId,
+      'body': 'tidy the README',
+      'agent': 'demo',
+      'model': 'haiku',
+      'effort': 'low',
+      'repoIds': [repos.first['id']],
+    });
+    final t = (made['tasks'] as List).single as Map;
+    expect([t['assignee'], t['model'], t['modelFor'], t['effort'], t['repoIds']], ['demo', 'haiku', 'demo', 'low', [repos.first['id']]]);
+    expect(t['ask'], isNull);
+    final run = await waitFor(() async => (await c.list(M.runsList)).where((r) => r['taskId'] == t['id']).firstOrNull);
+    await c.call(M.runsStop, {'runId': run['id']});
+
+    // A question: read-only, answered in the thread, never on the board.
+    final asked = await c.map(M.messagesPost, {'channelId': chId, 'body': 'what is in this repo?', 'agent': 'demo', 'mode': 'answer'});
+    final q = (asked['tasks'] as List).single as Map;
+    expect(q['ask'], 'answer');
+    expect(q['title'], startsWith('Question: '));
+    final answer = await waitFor(() async {
+      final ms = await c.list(M.messagesList, {'channelId': chId});
+      return ms.where((m) => m['taskId'] == q['id'] && m['authorKind'] == 'agent').firstOrNull;
+    }, timeout: const Duration(seconds: 30));
+    expect(answer['body'], contains('A real agent would answer'));
+    expect(answer['replyTo'], (asked['message'] as Map)['id']);
+    final ack = (await c.list(M.messagesList, {'channelId': chId})).where((m) => m['replyTo'] == (asked['message'] as Map)['id'] && m['body'] == 'Looking into it…');
+    expect(ack, hasLength(1));
+    final done = await waitFor(() async {
+      final x = ((await c.map(M.tasksGet, {'id': q['id']}))['task'] as Map);
+      return x['status'] == 'done' ? x : null;
+    });
+    expect(done['status'], 'done');
+    // Nothing was written, and no change set exists for the question.
+    expect((await c.map(M.tasksGet, {'id': q['id']}))['changes'], isEmpty);
+    expect(File(p.join(repos.first['localPath'] as String, 'RELAY_DEMO.md')).existsSync(), isFalse);
+
+    await expectLater(c.call(M.messagesPost, {'channelId': chId, 'body': 'x', 'mode': 'shout'}), throwsA(isA<RpcError>()));
+  });
+
   test('a signed-out agent says how to sign back in', () async {
     // Stands in for a Claude Code whose login expired: reads the prompt,
     // complains on stderr, exits 1.

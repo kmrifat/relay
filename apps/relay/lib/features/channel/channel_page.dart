@@ -1,4 +1,6 @@
 
+import 'dart:convert';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +15,7 @@ import '../../data/relay_data.dart';
 import '../../ui/markdown.dart';
 import '../../ui/widgets.dart';
 import '../../ui/platform.dart';
+import '../agents/model_picker.dart';
 import '../task/task_bits.dart';
 
 /// An agent you can @mention: this Mac's, or a teammate's shared one.
@@ -496,6 +499,15 @@ class _ComposerState extends ConsumerState<_Composer> {
   String? error;
   bool busy = false;
 
+  /// The agent picked with @ (design P04), and what it should do: its model
+  /// and effort, `task` / `answer` / `plan`, and the repos. The choices are
+  /// kept per channel and agent in relayd, so the next @ starts with them.
+  ChannelAgent? target;
+  String? model, effort;
+  String mode = 'task';
+  Set<String> repoIds = {};
+  bool showOptions = false;
+
   @override
   void initState() {
     super.initState();
@@ -543,10 +555,59 @@ class _ComposerState extends ConsumerState<_Composer> {
   }
 
   void _complete(String handle) {
+    final agent = widget.agents.where((a) => a.id == handle).firstOrNull;
+    if (agent != null) {
+      _pick(agent);
+      return;
+    }
     final sel = text.selection.baseOffset;
     final before = text.text.substring(0, sel).replaceFirst(RegExp(r'@[A-Za-z0-9_.-]*$'), '@$handle ');
     final after = text.text.substring(sel);
     text.value = TextEditingValue(text: before + after, selection: TextSelection.collapsed(offset: before.length));
+  }
+
+  String get _optionsKey => 'channel.${widget.channel.id}.${target?.id}';
+
+  /// Takes the `@word` out of the text and makes [a] the message's agent,
+  /// with the options last used for it here.
+  Future<void> _pick(ChannelAgent a) async {
+    final sel = text.selection.baseOffset;
+    final before = text.text.substring(0, sel).replaceFirst(RegExp(r'@[A-Za-z0-9_.-]*$'), '');
+    final after = text.text.substring(sel);
+    text.value = TextEditingValue(text: before + after, selection: TextSelection.collapsed(offset: before.length));
+    setState(() {
+      target = a;
+      model = null;
+      effort = null;
+      mode = 'task';
+      repoIds = {};
+    });
+    focus.requestFocus();
+    try {
+      final raw = await ref.read(clientProvider).call<String?>(M.uiGet, {'key': _optionsKey});
+      if (raw == null || !mounted || target?.id != a.id) return;
+      final o = (jsonDecode(raw) as Map).cast<String, Object?>();
+      final repos = {for (final r in ref.read(dataProvider).reposOf(widget.channel.projectId ?? '')) r.id};
+      setState(() {
+        model = o['model'] as String?;
+        effort = o['effort'] as String?;
+        mode = o['mode'] as String? ?? 'task';
+        repoIds = {for (final r in (o['repoIds'] as List? ?? const []).cast<String>()) if (repos.contains(r)) r};
+      });
+    } on Object catch (_) {
+      // Nothing saved for this agent here yet.
+    }
+  }
+
+  void _options({String? model, String? effort, bool clearModel = false, bool clearEffort = false, String? mode, Set<String>? repoIds}) {
+    setState(() {
+      this.model = clearModel ? null : (model ?? this.model);
+      this.effort = clearEffort ? null : (effort ?? this.effort);
+      this.mode = mode ?? this.mode;
+      this.repoIds = repoIds ?? this.repoIds;
+    });
+    final saved = {'model': this.model, 'effort': this.effort, 'mode': this.mode, 'repoIds': this.repoIds.toList()};
+    ref.read(clientProvider).call(M.uiSet, {'key': _optionsKey, 'value': jsonEncode(saved)}).catchError((Object _) => true);
   }
 
   Future<void> _send() async {
@@ -557,9 +618,24 @@ class _ComposerState extends ConsumerState<_Composer> {
       error = null;
     });
     try {
-      final res = await ref.read(clientProvider).map(M.messagesPost, {'channelId': widget.channel.id, 'body': body, 'files': files});
+      final res = await ref.read(clientProvider).map(M.messagesPost, {
+        'channelId': widget.channel.id,
+        'body': body,
+        'files': files,
+        if (target != null) ...{
+          'agent': target!.id,
+          'model': ?model,
+          'effort': ?effort,
+          'mode': mode,
+          'repoIds': repoIds.toList(),
+        },
+      });
       text.clear();
       files.clear();
+      setState(() {
+        target = null;
+        showOptions = false;
+      });
       widget.onSent();
       final made = res['task'] as Map?;
       if (made != null && mounted) {
@@ -629,6 +705,8 @@ class _ComposerState extends ConsumerState<_Composer> {
                     visualDensity: VisualDensity.compact,
                   ),
               ]),
+            if (target != null) _targetChip(context),
+            if (target != null && showOptions) _optionsPanel(context),
             TextField(
               controller: text,
               focusNode: focus,
@@ -639,7 +717,9 @@ class _ComposerState extends ConsumerState<_Composer> {
               decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
-                hintText: 'Message #${widget.channel.name}',
+                hintText: target == null
+                    ? 'Message #${widget.channel.name}'
+                    : switch (mode) { 'answer' => 'Ask ${target!.name} a question', 'plan' => 'What should ${target!.name} plan?', _ => 'What should ${target!.name} do?' },
                 hintStyle: context.t(13, color: c.text3),
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
               ),
@@ -654,13 +734,127 @@ class _ComposerState extends ConsumerState<_Composer> {
               }),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(error ?? '/task makes a task · @agent assigns it · ↵ send',
+                child: Text(error ?? '@agent picks an agent, its model and what to do · /task makes a task · ↵ send',
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: error != null ? c.danger : c.text3)),
               ),
-              Btn(isTask ? 'Create task' : 'Send', kind: BtnKind.primary, small: true, icon: LucideIcons.send, onTap: busy ? null : _send),
+              Btn(isTask || (target != null && mode == 'task') ? 'Create task' : (target != null ? 'Ask' : 'Send'),
+                  kind: BtnKind.primary, small: true, icon: LucideIcons.send, onTap: busy ? null : _send),
             ]),
           ]),
         ),
+      ]),
+    );
+  }
+
+  /// "[B] Bram · Sonnet · high · task · api ▾": who gets this message and how.
+  Widget _targetChip(BuildContext context) {
+    final c = context.c;
+    final a = target!;
+    final profile = a.mine ? ref.read(dataProvider).get<AgentProfile>(Kind.agent, a.id) : null;
+    final repos = ref.read(dataProvider).reposOf(widget.channel.projectId ?? '');
+    final summary = [
+      if (model != null) modelLabel(profile, model),
+      ?effort,
+      switch (mode) { 'answer' => 'just answer', 'plan' => 'plan only', _ => 'make a task' },
+      for (final r in repos.where((r) => repoIds.contains(r.id))) r.name,
+    ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(children: [
+        Pressable(
+          onTap: () => setState(() => showOptions = !showOptions),
+          builder: (context, hover, focused) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: c.accent.withValues(alpha: hover ? 0.28 : 0.18),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: c.accent),
+            ),
+            foregroundDecoration: focusRing(context, focused, 5),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              AgentTile(agent: AgentProfile({'color': a.color, 'letter': a.letter}), size: 14),
+              const SizedBox(width: 6),
+              Text(a.name, style: context.t(12, w: FontWeight.w600)),
+              const SizedBox(width: 6),
+              Text(summary, style: context.t(11.5, color: c.accentIcon)),
+              const SizedBox(width: 4),
+              Icon(showOptions ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: 12, color: c.accentIcon),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 4),
+        IconBtn(LucideIcons.x, size: 12, tooltip: 'Send to the channel instead', onTap: () => setState(() {
+          target = null;
+          showOptions = false;
+        })),
+      ]),
+    );
+  }
+
+  /// Model and effort, what to do, and which repos (design P04).
+  Widget _optionsPanel(BuildContext context) {
+    final c = context.c;
+    final a = target!;
+    final data = ref.read(dataProvider);
+    final profile = a.mine ? data.get<AgentProfile>(Kind.agent, a.id) : null;
+    final repos = data.reposOf(widget.channel.projectId ?? '');
+    Widget line(String label, Widget child) => Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(children: [
+        SizedBox(width: 56, child: Text(label, style: context.t(11.5, color: c.text2))),
+        Expanded(child: child),
+      ]),
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
+      decoration: BoxDecoration(color: c.box, borderRadius: BorderRadius.circular(6), border: Border.all(color: c.boxStroke)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (profile != null)
+          line('Model', Align(
+            alignment: Alignment.centerLeft,
+            child: ModelEffortPicker(
+              agent: profile,
+              model: model,
+              effort: effort,
+              inherited: agentDefaults(profile),
+              onChanged: (m, e) => _options(model: m, effort: e, clearModel: m == null, clearEffort: e == null),
+            ),
+          ))
+        else
+          line('Model', Text("${a.owner}'s settings for ${a.name}", style: context.t(11.5, color: c.text3))),
+        line('Do', Align(
+          alignment: Alignment.centerLeft,
+          child: Segmented<String>(
+            small: true,
+            options: const [('task', 'Make a task'), ('answer', 'Just answer'), ('plan', 'Plan only')],
+            value: mode,
+            onChanged: (v) => _options(mode: v),
+          ),
+        )),
+        if (repos.length > 1)
+          line('Repos', Wrap(spacing: 4, runSpacing: 4, children: [
+            for (final r in repos)
+              Pressable(
+                onTap: () => _options(repoIds: repoIds.contains(r.id) ? ({...repoIds}..remove(r.id)) : {...repoIds, r.id}),
+                builder: (context, hover, focused) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: repoIds.contains(r.id) ? hexColor(r.color).withValues(alpha: 0.2) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: repoIds.contains(r.id) ? hexColor(r.color) : c.fieldStroke),
+                  ),
+                  foregroundDecoration: focusRing(context, focused, 10),
+                  child: Text(r.name, style: context.t(11, color: repoIds.contains(r.id) ? hexColor(r.color) : c.text2)),
+                ),
+              ),
+          ])),
+        if (mode != 'task')
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(mode == 'answer' ? '${a.name} reads read-only copies and replies here; nothing goes on the board.' : '${a.name} replies here with a plan; nothing changes yet.',
+                style: context.t(11, color: c.text3)),
+          ),
       ]),
     );
   }

@@ -11,6 +11,7 @@ import '../../data/relay_data.dart';
 import '../../ui/markdown.dart';
 import '../../ui/split.dart';
 import '../../ui/widgets.dart';
+import '../agents/model_picker.dart';
 import '../../ui/platform.dart';
 import 'diff_dialog.dart';
 import 'run_pane.dart';
@@ -191,6 +192,21 @@ class _DetailsState extends ConsumerState<_Details> {
               assignMenu(context, ref, t, box.localToGlobal(Offset(0, box.size.height)));
             })),
           ])),
+          if (t.assigneeKind == 'agent' && data.get<AgentProfile>(Kind.agent, t.assignee)?.binaryPath != null) ...[
+            const Hairline(),
+            Builder(builder: (context) {
+              final a = data.get<AgentProfile>(Kind.agent, t.assignee)!;
+              // A model picked for another CLI doesn't apply to this one.
+              final model = t.modelFor == null || t.modelFor == a.adapter ? t.model : null;
+              return FieldRow('Model', ModelEffortPicker(
+                agent: a,
+                model: model,
+                effort: a.efforts.contains(t.effort) ? t.effort : null,
+                inherited: agentDefaults(a),
+                onChanged: (m, e) => _update({'model': m, 'modelFor': m == null ? null : a.adapter, 'effort': e}),
+              ));
+            }),
+          ],
           if (t.pipeline.isNotEmpty) ...[
             const Hairline(),
             FieldRow('Pipeline', Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [

@@ -65,7 +65,10 @@ class DataSnapshot {
       final s = a.mergeStep.compareTo(b.mergeStep);
       return s != 0 ? s : a.name.compareTo(b.name);
     });
-  List<Task> tasksOf(String? projectId) => all<Task>(Kind.task).where((t) => projectId == null || t.projectId == projectId).toList();
+  /// The project's tasks (every project's for null). Questions asked in a
+  /// channel (`ask`) are runs, not work: they live in the thread only.
+  List<Task> tasksOf(String? projectId) =>
+      all<Task>(Kind.task).where((t) => (projectId == null || t.projectId == projectId) && t.data['ask'] == null).toList();
   List<Run> runsOf(String taskId) => all<Run>(Kind.run).where((r) => r.taskId == taskId).toList()..sort((a, b) => a.id.compareTo(b.id));
   List<ChangeEntry> changesOf(String taskId) => all<ChangeEntry>(Kind.change).where((c) => c.taskId == taskId).toList();
   /// Team devices (this Mac included), most recently seen first.

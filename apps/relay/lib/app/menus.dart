@@ -55,7 +55,7 @@ class RelayMenus extends ConsumerWidget {
               for (var i = 0; i < projects.length && i < 9; i++) item(Cmd.project(i), label: projects[i].name),
             ]),
           PlatformMenuItemGroup(members: [item(Cmd.back), item(Cmd.forward)]),
-          PlatformMenuItemGroup(members: [item(Cmd.quickFind), item(Cmd.switchPane)]),
+          PlatformMenuItemGroup(members: [item(Cmd.quickFind), item(Cmd.askAgent), item(Cmd.switchPane)]),
         ]),
         PlatformMenu(label: 'View', menus: [
           PlatformMenuItemGroup(members: [for (var i = 0; i < viewNames.length; i++) item(Cmd.view(i))]),

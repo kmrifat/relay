@@ -35,11 +35,11 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `tasks.suggestRepos` | `{projectId, text, repoIds}` | `[{repoId, name, reason}]` |
 | `comments.list / post` | `{taskId}` / `{taskId, body, authorKind?, author?, question?}` | comments / comment |
 | `runs.list / get / events` | `{taskId?, active?}` / `{id}` / `{runId, after?, limit?}` | runs / run / run events |
-| `runs.start` | `{taskId, agentId?, note?}` | run (prepares the workspace) |
+| `runs.start` | `{taskId, agentId?, note?, model?, effort?}` | run (prepares the workspace). Model and effort: this call, then the pipeline step, the task (`model` counts only for the CLI in `modelFor`), then the agent; an effort the CLI lacks is skipped. The run records both |
 | `runs.steer / pause / resume / stop` | `{runId, text}` / `{runId}` | true |
 | `runs.handoff` | `{runId, agentId, note?}` | new run |
 | `permissions.answer` | `{runId, requestId, answer}` (`allow_once`, `allow_always`, `deny`) | true |
-| `agents.list / detect / update` | — / — / `{id, fields}` | agents with `active` and `today` usage |
+| `agents.list / detect / update` | — / — / `{id, fields}` | agents with `active` and `today` usage; `models` and `efforts` are what the CLI offers (refreshed at detection), `model` and `effort` the agent's defaults |
 | `agents.message` | `{taskId, from, to, text}` | true (agent-to-agent) |
 | `rules.list / save / delete` | — / `{id?, fields}` / `{id}` | rules |
 | `settings.get / set` | — / `{values}` | settings |
@@ -63,7 +63,7 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `channels.list` | — | channels with `unread` and `lastAt` (`#general` and one per project exist by default) |
 | `channels.create / update / read / pin` | `{name, projectId?, topic?}` / `{id, fields}` / `{channelId}` / `{channelId, messageId, on?}` | channel / true |
 | `messages.list` | `{channelId, limit?}` | messages, oldest first |
-| `messages.post` | `{channelId, body, replyTo?, files?: [path]}` | `{message, task?}`, or `{message, tasks}` when `@agent` mentions made tasks. `/task [@agent] title` makes a task on the channel's board |
+| `messages.post` | `{channelId, body, replyTo?, files?: [path], agent?, model?, effort?, mode?, repoIds?}` | `{message, task?}`, or `{message, tasks}` when `@agent` mentions (or `agent`) made tasks. `/task [@agent] title` makes a task on the channel's board. `mode`: `task` (default) puts work on the board; `answer` and `plan` make a hidden `ask` task that runs on read-only copies and replies in the thread |
 | `messages.react / delete` | `{messageId, emoji, on?}` / `{id}` (own only) | true |
 | `files.get` | `{messageId, fileId}` | `{path}`, fetched and decrypted from team storage the first time |
 
@@ -100,3 +100,4 @@ Without `--run` (and no `RELAY_RUN`), the same server is for a person's own agen
 - `relay_tasks {project?, status?}`: a project's tasks with their keys.
 - `relay_create_task {title, project?, brief?, doneWhen?, repos?, agent?, queue?}`: a task in Backlog, or queued with `queue: true`. Without `repos`, Relay suggests them from the title and brief, as the new-task sheet does.
 - `relay_task_status {task}`: status, latest run, open question, checklist and discussion of a task such as `GA-3`.
+- `relay_update_task {task, status?, check?, uncheck?, addDoneWhen?, note?, from?}`: for work the person's own agent does itself: move the task, tick or add "done when" items, post a note.

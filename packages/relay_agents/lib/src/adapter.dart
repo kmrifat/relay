@@ -7,6 +7,7 @@ class RunSpec {
     required this.cwd,
     this.binary,
     this.model,
+    this.effort,
     this.resumeSessionId,
     this.extraArgs = const [],
     this.argsTemplate,
@@ -14,6 +15,7 @@ class RunSpec {
     this.mcpConfigPath,
     this.addDirs = const [],
     this.autoApprove = false,
+    this.readOnly = false,
   });
 
   final String prompt;
@@ -22,10 +24,14 @@ class RunSpec {
   /// Full path to the CLI (from detection); defaults to the adapter's name.
   final String? binary;
   final String? model;
+
+  /// Reasoning effort, one of the adapter's [AgentAdapter.efforts].
+  final String? effort;
   final String? resumeSessionId;
   final List<String> extraArgs;
 
-  /// For generic adapters: argv with `{prompt}`, `{cwd}` and `{model}`.
+  /// For generic adapters: argv with `{prompt}`, `{cwd}`, `{model}` and
+  /// `{effort}`.
   final List<String>? argsTemplate;
   final Map<String, String> environment;
 
@@ -38,6 +44,10 @@ class RunSpec {
 
   /// Skip Relay's permission prompts (the user chose "Always" for everything).
   final bool autoApprove;
+
+  /// A question, not a change: the CLI's own editing tools are switched off
+  /// where it has a way to (the workspace is read-only copies anyway).
+  final bool readOnly;
 }
 
 /// The name of Relay's MCP server in the config `mcpConfigJson` writes; its
@@ -93,6 +103,18 @@ abstract class AgentSession {
   Future<int> get exitCode;
 }
 
+/// A model a CLI accepts, by the name passed to it (an alias like `opus`
+/// keeps pointing at the newest one).
+class ModelOption {
+  const ModelOption(this.id, this.label, {this.note = ''});
+  final String id;
+  final String label;
+
+  /// A hint for pickers: "deepest", "fast, cheap".
+  final String note;
+  Map<String, Object?> toJson() => {'id': id, 'label': label, if (note.isNotEmpty) 'note': note};
+}
+
 /// What detection found about a CLI on this device.
 class DetectedAgent {
   DetectedAgent({required this.adapter, required this.binaryPath, this.version});
@@ -116,6 +138,13 @@ abstract class AgentAdapter {
 
   /// What the agent is usually good at (shown on the fleet screen).
   List<String> get goodAt => const [];
+
+  /// Models offered in pickers. Any other name the CLI takes can be typed.
+  List<ModelOption> get models => const [];
+
+  /// Reasoning effort levels the CLI takes, lowest first; empty when it has
+  /// no such setting.
+  List<String> get efforts => const [];
 
   Future<AgentSession> start(RunSpec spec);
 }

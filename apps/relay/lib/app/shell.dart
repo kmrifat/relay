@@ -12,6 +12,7 @@ import '../data/system.dart';
 import '../data/notifications.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
+import '../features/ask/ask_palette.dart';
 import '../features/channel/channel_page.dart';
 import '../features/code/code_session.dart';
 import '../features/help/keyboard_map.dart';
@@ -148,6 +149,7 @@ class _ShellState extends ConsumerState<Shell> {
 
     return {
       Cmd.quickFind: () => showQuickFind(context, ref),
+      Cmd.askAgent: () => showAskPalette(context, ref),
       Cmd.home: () => n.page(AppPage.inbox),
       for (var i = 0; i < data.projects.length && i < 9; i++) Cmd.project(i): () => n.project(data.projects[i].id),
       Cmd.needsYou: () => n.page(AppPage.waiting),

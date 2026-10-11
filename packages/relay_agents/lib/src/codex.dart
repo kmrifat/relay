@@ -27,14 +27,19 @@ class CodexAdapter extends AgentAdapter {
   @override
   List<String> get goodAt => const ['code review', 'bug fixes'];
 
+  /// `-c model_reasoning_effort=…` in `codex exec`.
+  @override
+  List<String> get efforts => const ['minimal', 'low', 'medium', 'high'];
+
   static List<String> argsFor(RunSpec spec) => [
     'exec',
     if (spec.resumeSessionId != null) ...['resume', spec.resumeSessionId!],
     '--json',
     '--skip-git-repo-check',
     '--sandbox',
-    spec.autoApprove ? 'danger-full-access' : 'workspace-write',
+    spec.readOnly ? 'read-only' : (spec.autoApprove ? 'danger-full-access' : 'workspace-write'),
     if (spec.model != null) ...['--model', spec.model!],
+    if (spec.effort != null) ...['-c', 'model_reasoning_effort="${spec.effort}"'],
     ...spec.extraArgs,
     spec.prompt,
   ];

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
+import 'package:relay_agents/relay_agents.dart' show ModelOption;
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_git/relay_git.dart';
 
@@ -109,9 +110,15 @@ void ensureDemoAgent(DaemonContext ctx) {
     'goodAt': ['trying Relay'],
     'plan': 'Built in, no account',
   };
+  // It takes Claude Code's flags, so the model and effort pickers work.
+  final adapter = ctx.registry['demo'];
+  final offers = {
+    'models': [for (final m in adapter?.models ?? const <ModelOption>[]) m.toJson()],
+    'efforts': adapter?.efforts ?? const <String>[],
+  };
   if (existing == null) {
-    ctx.store.create<AgentProfile>(Kind.agent, {'id': 'demo', 'enabled': true, 'slots': 3, ...fields});
-  } else if (existing.binaryPath != ctx.relayBinary) {
-    ctx.store.patch<AgentProfile>(Kind.agent, 'demo', {'binaryPath': ctx.relayBinary});
+    ctx.store.create<AgentProfile>(Kind.agent, {'id': 'demo', 'enabled': true, 'slots': 3, ...fields, ...offers});
+  } else {
+    ctx.store.patch<AgentProfile>(Kind.agent, 'demo', {'binaryPath': ctx.relayBinary, ...offers});
   }
 }

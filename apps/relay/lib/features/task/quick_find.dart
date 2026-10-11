@@ -19,14 +19,14 @@ class QuickFindField extends ConsumerWidget {
     child: GestureDetector(
       onTap: () => showQuickFind(context, ref),
       child: Container(
-        width: 260,
+        width: 180,
         height: 26,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(color: context.c.toolbarField, borderRadius: BorderRadius.circular(6)),
         child: Row(children: [
           Icon(LucideIcons.search, size: 13, color: context.c.text2),
           const SizedBox(width: 8),
-          Expanded(child: Text('Search tasks', style: context.t(12, color: context.c.text2))),
+          Expanded(child: Text('Jump to…', style: context.t(12, color: context.c.text2))),
           Text('⌘K', style: context.t(11, color: context.c.text3)),
         ]),
       ),

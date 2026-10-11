@@ -226,7 +226,10 @@ void main() {
     await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
     final task = await client.map(M.tasksCreate, {
       'projectId': pid,
-      'fields': {'title': 'Push me', 'assigneeKind': 'agent', 'assignee': 'demo', 'repoIds': [api['id']], 'status': 'queued'},
+      'fields': {
+        'title': 'Push me', 'assigneeKind': 'agent', 'assignee': 'demo', 'repoIds': [api['id']], 'status': 'queued',
+        'model': 'haiku', 'modelFor': 'demo', 'effort': 'xhigh',
+      },
     });
     await waitFor(() async {
       final t = (await client.map(M.tasksGet, {'id': task['id']}))['task'] as Map;
@@ -235,6 +238,10 @@ void main() {
     // A single-repo task starts in the repo; the workspace around it (PROJECT.md) is added.
     final runId = (((await client.map(M.tasksGet, {'id': task['id']}))['runs'] as List).last as Map)['id'];
     final events = await client.list(M.runsEvents, {'runId': runId});
+    // The run records and passes the task's model and effort.
+    final run = await client.map(M.runsGet, {'id': runId});
+    expect([run['model'], run['effort']], ['haiku', 'xhigh']);
+    expect((events.first['data'] as Map)['detail'], contains('(haiku, effort xhigh)'));
     final read = events.firstWhere((e) => e['type'] == 'tool_use' && (e['data'] as Map)['tool'] == 'Read');
     expect((read['data'] as Map)['summary'], endsWith('PROJECT.md'));
     expect(events.where((e) => e['type'] == 'tool_result').every((e) => (e['data'] as Map)['ok'] == true), isTrue);
@@ -243,6 +250,29 @@ void main() {
     final branches = await Git().run(bare, ['branch', '--format=%(refname:short)']);
     expect(branches, contains('kt-${task['number']}'));
     await client.call(M.settingsSet, {'values': {'askBeforeShell': 'true'}});
+  });
+
+  test('model and effort: this run, then the step, the task, the agent', () async {
+    final sup = daemon.supervisor;
+    final adapter = daemon.ctx.registry['demo']!;
+    final agent = AgentProfile({'id': 'demo', 'adapter': 'demo', 'model': 'opus', 'effort': 'low'});
+    Task task(Map<String, Object?> f) => Task({'id': 't', 'projectId': 'p', ...f});
+    expect(sup.modelFor(task({}), -1, agent, adapter), ('opus', 'low'));
+    expect(sup.modelFor(task({'model': 'haiku', 'effort': 'high'}), -1, agent, adapter), ('haiku', 'high'));
+    // A model picked for another CLI is not passed to this one.
+    expect(sup.modelFor(task({'model': 'gpt-5', 'modelFor': 'codex'}), -1, agent, adapter), ('opus', 'low'));
+    final piped = task({
+      'model': 'haiku',
+      'pipeline': [
+        {'name': 'plan', 'assignee': 'demo', 'status': 'pending', 'model': 'fable', 'effort': 'max'},
+      ],
+    });
+    expect(sup.modelFor(piped, 0, agent, adapter), ('fable', 'max'));
+    expect(sup.modelFor(piped, 0, agent, adapter, model: 'sonnet', effort: 'medium'), ('sonnet', 'medium'));
+    // An effort the CLI doesn't have is dropped, not passed.
+    expect(sup.modelFor(task({'effort': 'turbo'}), -1, agent, adapter), ('opus', 'low'));
+    final listed = (await client.list(M.agentsList)).firstWhere((a) => a['id'] == 'demo');
+    expect(listed['efforts'], ['low', 'medium', 'high', 'xhigh', 'max']);
   });
 
   test('time limit stops a run; a spend cap keeps an agent from starting', () async {
@@ -416,6 +446,8 @@ void main() {
     final (badItem, badErr) = await tool('relay_update_task', {'task': key, 'check': [7]});
     expect(badErr, isTrue);
     expect(badItem, contains('No "done when" item 7'));
+    final (all, _) = await tool('relay_update_task', {'task': key, 'check': 'all'});
+    expect(all, contains('checklist 2/2'));
 
     await proc.stdin.close();
     proc.kill();

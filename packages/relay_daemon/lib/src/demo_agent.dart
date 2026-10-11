@@ -24,6 +24,9 @@ Future<int> runDemoAgent(List<String> args) async {
     for (var i = 0; i + 1 < args.length; i++)
       if (args[i] == '--add-dir') args[i + 1],
   ];
+  // `--disallowedTools Edit Write …`: a question, so it reads and answers.
+  final i = args.indexOf('--disallowedTools');
+  final readOnly = i >= 0 && args.skip(i + 1).takeWhile((a) => !a.startsWith('--')).contains('Write');
   final delay = Duration(milliseconds: int.tryParse(Platform.environment['RELAY_DEMO_DELAY_MS'] ?? '') ?? 600);
 
   Future<Map<String, Object?>?> next() async {
@@ -62,6 +65,17 @@ Future<int> runDemoAgent(List<String> args) async {
     ]));
     emit(_toolResult('r1', map.readAsLinesSync().take(3).join('\n')));
     await Future<void>.delayed(delay);
+  }
+
+  if (readOnly) {
+    final answer = 'From a look around: the workspace has ${entries.isEmpty ? 'nothing yet' : entries.join(', ')}. '
+        'A real agent would answer "$title" from the code here.';
+    emit(_assistant([
+      {'type': 'text', 'text': answer},
+    ]));
+    emit(_result(session, answer));
+    while (await next() != null) {}
+    return 0;
   }
 
   // Repos it may change: subfolders that are git worktrees (not links), or cwd itself.

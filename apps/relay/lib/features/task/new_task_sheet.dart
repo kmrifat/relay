@@ -10,6 +10,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../agents/model_picker.dart';
 
 Future<void> showNewTaskSheet(BuildContext context, WidgetRef ref, {String? status, String? brief}) async {
   final data = ref.read(dataProvider);
@@ -32,6 +33,7 @@ class _Step {
   String kind; // agent | person
   String assignee;
   String note;
+  String? model, effort;
 }
 
 class _NewTask extends ConsumerStatefulWidget {
@@ -52,6 +54,7 @@ class _NewTaskState extends ConsumerState<_NewTask> {
   late Set<String> repoIds = {?widget.repoFilter};
   List<Map<String, Object?>> suggestions = [];
   String assignee = 'auto'; // auto | agent id | me
+  String? model, effort; // for the assigned agent's CLI; null = its default
   bool pipeline = false;
   late List<_Step> steps;
   String start = 'slot'; // now | slot | tonight | backlog
@@ -109,13 +112,17 @@ class _NewTaskState extends ConsumerState<_NewTask> {
       'startAt': switch (start) { 'tonight' => tonight.toUtc().toIso8601String(), 'now' => 'now', _ => 'slot' },
       if (stopAfter > 0) 'stopAfterMinutes': stopAfter,
       if (pipeline)
-        'pipeline': [for (final s in steps) {'name': s.name, 'assigneeKind': s.kind, 'assignee': s.assignee, 'note': s.note, 'status': 'pending'}]
+        'pipeline': [
+          for (final s in steps)
+            {'name': s.name, 'assigneeKind': s.kind, 'assignee': s.assignee, 'note': s.note, 'status': 'pending', 'model': ?s.model, 'effort': ?s.effort},
+        ]
       else if (assignee == 'me')
         ...{'assigneeKind': 'person', 'assignee': userName}
       else if (assignee.startsWith('dev:'))
         ...{'assigneeKind': 'agent', 'assignee': assignee.split(':')[2], 'runOn': assignee.split(':')[1]}
       else
         ...{'assigneeKind': 'agent', 'assignee': assignee},
+      if (!pipeline && _agent != null) ...{'model': ?model, 'modelFor': ?(model == null ? null : _agent!.adapter), 'effort': ?effort},
     };
     try {
       final t = await client.map(M.tasksCreate, {'projectId': projectId, 'fields': fields});
@@ -129,6 +136,9 @@ class _NewTaskState extends ConsumerState<_NewTask> {
       setState(() => error = e.message);
     }
   }
+
+  /// The local agent picked as the one assignee, if any.
+  AgentProfile? get _agent => ref.read(dataProvider).agents.where((a) => a.id == assignee && a.binaryPath != null).firstOrNull;
 
   @override
   Widget build(BuildContext context) {
@@ -235,7 +245,13 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                       for (final (d, a) in shared) ('dev:${d.id}:${a['id']}', '${a['name']} · ${d.person.isEmpty ? d.name : d.person}', LucideIcons.monitorSmartphone),
                       ('me', 'Me', LucideIcons.user),
                     ]);
-                    if (v != null) setState(() => assignee = v);
+                    if (v != null) {
+                      setState(() {
+                        assignee = v;
+                        model = null;
+                        effort = null;
+                      });
+                    }
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -259,6 +275,17 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                   ),
                 )),
             ])),
+            if (!pipeline && _agent != null)
+              row('Model', ModelEffortPicker(
+                agent: _agent,
+                model: model,
+                effort: effort,
+                inherited: agentDefaults(_agent!),
+                onChanged: (m, e) => setState(() {
+                  model = m;
+                  effort = e;
+                }),
+              )),
             if (pipeline)
               row('Steps', Column(children: [
                 for (var i = 0; i < steps.length; i++) _stepRow(context, i, agents),
@@ -302,9 +329,10 @@ class _NewTaskState extends ConsumerState<_NewTask> {
     final c = context.c;
     final s = steps[i];
     final userName = ref.read(clientProvider).hello['userName'] as String? ?? 'You';
+    final agent = s.kind == 'agent' ? agents.where((a) => a.id == s.assignee).firstOrNull : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [
         Container(
           width: 22,
           height: 22,
@@ -326,6 +354,8 @@ class _NewTaskState extends ConsumerState<_NewTask> {
             ]);
             if (v == null) return;
             setState(() {
+              s.model = null;
+              s.effort = null;
               if (v == 'person') {
                 s.kind = 'person';
                 s.assignee = userName;
@@ -348,6 +378,21 @@ class _NewTaskState extends ConsumerState<_NewTask> {
           ),
         )),
         IconBtn(LucideIcons.x, size: 12, onTap: steps.length > 1 ? () => setState(() => steps.removeAt(i)) : null),
+      ]),
+        if (agent != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 6),
+            child: ModelEffortPicker(
+              agent: agent,
+              model: s.model,
+              effort: s.effort,
+              inherited: agentDefaults(agent),
+              onChanged: (m, e) => setState(() {
+                s.model = m;
+                s.effort = e;
+              }),
+            ),
+          ),
       ]),
     );
   }

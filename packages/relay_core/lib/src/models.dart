@@ -173,6 +173,8 @@ class PipelineStep {
     required this.assignee,
     this.note = '',
     this.status = 'pending',
+    this.model,
+    this.effort,
   });
 
   factory PipelineStep.fromJson(Map<String, Object?> j) => PipelineStep(
@@ -181,6 +183,8 @@ class PipelineStep {
     assignee: j['assignee'] as String? ?? '',
     note: j['note'] as String? ?? '',
     status: j['status'] as String? ?? 'pending',
+    model: j['model'] as String?,
+    effort: j['effort'] as String?,
   );
 
   final String name;
@@ -193,12 +197,17 @@ class PipelineStep {
   /// `pending`, `running`, `done`, `failed`, `skipped`.
   final String status;
 
+  /// Model and effort for this step's agent, over the task's and agent's.
+  final String? model, effort;
+
   PipelineStep withStatus(String s) => PipelineStep(
     name: name,
     assigneeKind: assigneeKind,
     assignee: assignee,
     note: note,
     status: s,
+    model: model,
+    effort: effort,
   );
 
   Map<String, Object?> toJson() => {
@@ -207,6 +216,8 @@ class PipelineStep {
     'assignee': assignee,
     'note': note,
     'status': status,
+    'model': ?model,
+    'effort': ?effort,
   };
 }
 
@@ -250,6 +261,13 @@ class Task extends Entity {
 
   /// When to start: `now`, `slot` (when a slot frees), or an ISO time.
   String get startAt => str('startAt') ?? 'slot';
+
+  /// Model and effort for whoever runs it, over the agent's defaults. A
+  /// model name belongs to one CLI ([modelFor], an adapter id); another
+  /// CLI ignores it.
+  String? get model => str('model');
+  String? get modelFor => str('modelFor');
+  String? get effort => str('effort');
 
   /// Branch used in every repo the task touches.
   String branchName(String projectKey) => '${projectKey.toLowerCase()}-$number';
@@ -312,6 +330,10 @@ class Run extends Entity {
 
   /// Which pipeline step this run executes, or -1 when the task has none.
   int get pipelineStep => intOr('pipelineStep', -1);
+
+  /// What the CLI was started with; null means its own default.
+  String? get model => str('model');
+  String? get effort => str('effort');
 }
 
 /// A coding-agent CLI the user has on this device, and how Relay uses it.
@@ -333,6 +355,14 @@ class AgentProfile extends Entity {
   /// Free text describing the plan, e.g. "Claude Max 5×".
   String get plan => str('plan') ?? '';
   String? get model => str('model');
+
+  /// Default reasoning effort, one of [efforts].
+  String? get effort => str('effort');
+
+  /// What the CLI offers (from its adapter, refreshed at detection): models
+  /// as {id, label, note} and effort levels, lowest first.
+  List<Map<String, Object?>> get models => maps('models');
+  List<String> get efforts => strings('efforts');
   List<String> get goodAt => strings('goodAt');
 
   /// For API-key agents: daily spend cap in USD (0 = none).

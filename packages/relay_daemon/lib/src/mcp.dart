@@ -118,7 +118,7 @@ final _personTools = <Map<String, Object?>>[
     {
       'task': _str('Task key, e.g. GA-3'),
       'status': _str('New status: backlog, queued, running, review or done'),
-      'check': _list('Zero-based "done when" item numbers to tick'),
+      'check': _list('Zero-based "done when" item numbers to tick, or "all"'),
       'uncheck': _list('Zero-based "done when" item numbers to untick'),
       'addDoneWhen': _list('New "done when" items to add'),
       'note': _str('A note for the task discussion'),
@@ -183,6 +183,7 @@ Future<Map<String, Object?>> _project(RelayClient c, String? key) async {
 Future<String> _tasks(RelayClient c, String? key, String? status) async {
   final project = await _project(c, key);
   final tasks = (await c.list(M.tasksList, {'projectId': project['id']}))
+      .where((t) => t['ask'] == null) // questions asked in channels
       .where((t) => status == null || status.isEmpty || t['status'] == status)
       .toList()
     ..sort((a, b) => (a['number'] as num).compareTo(b['number'] as num));
@@ -259,7 +260,8 @@ Future<String> _updateTask(RelayClient c, Map<String, Object?> a) async {
   }
 
   var changed = false;
-  for (final v in _strings(a['check'])) {
+  final check = a['check'] == 'all' ? [for (var i = 0; i < done.length; i++) '$i'] : _strings(a['check']);
+  for (final v in check) {
     done[index(v)]['done'] = true;
     changed = true;
   }

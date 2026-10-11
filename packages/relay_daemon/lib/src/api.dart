@@ -241,7 +241,9 @@ class Api {
           throw RpcError(RpcError.invalidParams, '${ctx.taskKey(t)} is running on $where.');
         }
         if (t.str('runOn') != ctx.deviceId) store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId, 'attention': null});
-        return (await supervisor.startRun(t.id, agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?)).toJson();
+        return (await supervisor.startRun(t.id,
+                agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?, model: p['model'] as String?, effort: p['effort'] as String?))
+            .toJson();
       },
       M.runsSteer: (p) {
         supervisor.steer(_s(p, 'runId'), _s(p, 'text'));
@@ -351,6 +353,11 @@ class Api {
         p['body'] as String? ?? '',
         replyTo: p['replyTo'] as String?,
         files: ((p['files'] as List?) ?? const []).cast<String>(),
+        agent: p['agent'] as String?,
+        model: p['model'] as String?,
+        effort: p['effort'] as String?,
+        mode: p['mode'] as String? ?? 'task',
+        repoIds: ((p['repoIds'] as List?) ?? const []).cast<String>(),
       ),
       M.messagesReact: (p) {
         channels.react(_s(p, 'messageId'), _s(p, 'emoji'), p['on'] != false);
@@ -538,9 +545,17 @@ Future<List<Map<String, Object?>>> detectAgents(DaemonContext ctx) async {
         'color': adapter.color,
         'letter': adapter.letter,
         'goodAt': adapter.goodAt,
+        'models': [for (final m in adapter.models) m.toJson()],
+        'efforts': adapter.efforts,
       });
     } else {
-      ctx.store.patch<AgentProfile>(Kind.agent, d.adapter, {'binaryPath': d.binaryPath, 'version': d.version});
+      ctx.store.patch<AgentProfile>(Kind.agent, d.adapter, {
+        'binaryPath': d.binaryPath,
+        'version': d.version,
+        // What the CLI offers can change with a Relay update.
+        'models': [for (final m in adapter.models) m.toJson()],
+        'efforts': adapter.efforts,
+      });
     }
   }
   // Agents no longer on PATH stay listed but can't start.
