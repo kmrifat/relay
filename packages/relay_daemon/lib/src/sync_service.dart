@@ -168,6 +168,7 @@ class SyncService {
     final problems = await test(storage);
     if (problems.isNotEmpty) throw RpcError(RpcError.invalidParams, problems.first);
     secrets.storage = storage;
+    _claimLocalTasks();
     try {
       _engine = await SyncEngine.createTeam(store: store, secrets: secrets, teamName: name, saveSecrets: () => secrets.save(secretsPath));
     } catch (e) {
@@ -181,8 +182,17 @@ class SyncService {
 
   Future<String> invite() => _e.createInvite();
 
+  /// Tasks from before the team existed have no `runOn`; pin them to this
+  /// device so a teammate's scheduler never picks them up.
+  void _claimLocalTasks() {
+    for (final t in store.list<Task>(Kind.task)) {
+      if (t.str('runOn') == null) store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId});
+    }
+  }
+
   Future<Map<String, Object?>> join(String code) async {
     if (inTeam) throw RpcError(RpcError.invalidParams, 'This Mac is already in a team. Leave it first.');
+    _claimLocalTasks();
     try {
       _engine = await SyncEngine.join(store: store, secrets: secrets, code: code, saveSecrets: () => secrets.save(secretsPath));
     } on SyncError catch (e) {

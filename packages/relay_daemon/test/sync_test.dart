@@ -16,9 +16,11 @@ void main() {
   late RelayDaemon da, db;
   late RelayClient a, b;
 
+  late String relayBin;
+
   Future<(RelayDaemon, RelayClient)> boot(String name) async {
     final home = p.join(tmp.path, name);
-    final d = RelayDaemon(RelayPaths(home), detectOnStart: false, resolveShellEnv: false);
+    final d = RelayDaemon(RelayPaths(home), relayBinary: relayBin, detectOnStart: false, resolveShellEnv: false);
     await d.start();
     final c = await RelayClient.connect(RelayPaths(home), client: 'test');
     await c.call(M.settingsSet, {'values': {'userName': name, 'deviceName': '$name Mac'}});
@@ -27,6 +29,10 @@ void main() {
 
   setUpAll(() async {
     tmp = Directory.systemTemp.createTempSync('relay_sync_d_');
+    // Its own binary: daemon_test may be compiling tool/out/relay in parallel.
+    relayBin = p.join(tmp.path, 'relay');
+    final r = await Process.run('dart', ['compile', 'exe', 'bin/relay.dart', '-o', relayBin]);
+    expect(r.exitCode, 0, reason: '${r.stderr}');
     (da, a) = await boot('ann');
     (db, b) = await boot('bo');
   });
@@ -76,7 +82,10 @@ void main() {
 
     // Bo queues a task on Ann's Mac. Ann hasn't shared her agents, so it waits.
     final annDevice = (await a.map(M.syncStatus))['deviceId'];
-    final t2 = await b.map(M.tasksCreate, {'projectId': project['id'], 'fields': {'title': 'Ann runs this', 'runOn': annDevice, 'status': 'queued'}});
+    final t2 = await b.map(M.tasksCreate, {
+      'projectId': project['id'],
+      'fields': {'title': 'Ann runs this', 'runOn': annDevice, 'assigneeKind': 'agent', 'assignee': 'demo', 'status': 'queued'},
+    });
     await b.map(M.syncNow);
     await a.map(M.syncNow);
     final waiting = await waitFor(() async {
@@ -84,6 +93,21 @@ void main() {
       return t['attention'] == 'not-shared' ? t : null;
     }, timeout: const Duration(seconds: 10));
     expect(waiting['status'], 'queued');
+    // Bo's own scheduler never touched it.
+    expect((await b.list(M.runsList)).where((r) => r['taskId'] == t2['id']), isEmpty);
+
+    // Ann shares her agents: her Mac runs it, and Bo sees that it did.
+    await a.call(M.settingsSet, {'values': {'shareAgents': true}});
+    final run = await waitFor(() async {
+      final runs = (await a.list(M.runsList)).where((r) => r['taskId'] == t2['id']);
+      return runs.isEmpty ? null : runs.first;
+    }, timeout: const Duration(seconds: 15));
+    expect(run['deviceId'], annDevice);
+    expect(run['agentId'], 'demo');
+    await a.map(M.syncNow);
+    await b.map(M.syncNow);
+    final seen = await b.list(M.runsList);
+    expect(seen.where((r) => r['taskId'] == t2['id']).single['deviceId'], annDevice);
 
     // An edit on either side converges.
     await a.call(M.tasksUpdate, {'id': task['id'], 'fields': {'brief': 'from Ann'}});

@@ -107,7 +107,7 @@ class Supervisor {
   /// Whether this device should run [t]: it is the task's `runOn` device,
   /// and, if a teammate queued it here, this device shares its agents.
   bool _runsHere(Task t) {
-    final runOn = t.str('runOn') ?? t.str('createdOn') ?? ctx.deviceId;
+    final runOn = t.str('runOn') ?? t.str('createdOn') ?? (sync?.inTeam ?? false ? null : ctx.deviceId);
     if (runOn != ctx.deviceId) return false;
     final from = t.str('createdOn');
     if (from != null && from != ctx.deviceId && !ctx.boolSetting('shareAgents', false)) {

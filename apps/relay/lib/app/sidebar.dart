@@ -92,9 +92,31 @@ class Sidebar extends ConsumerWidget {
               ),
           ]),
         ),
-        _Row(icon: LucideIcons.settings, iconColor: c.text2, label: 'Settings', selected: !onTask && nav.page == AppPage.settings, onTap: () => n.page(AppPage.settings)),
+        _Row(
+          icon: LucideIcons.settings,
+          iconColor: c.text2,
+          label: 'Settings',
+          trailing: _syncTrailing(context, ref.watch(syncStatusProvider)),
+          selected: !onTask && nav.page == AppPage.settings,
+          onTap: () => n.page(AppPage.settings),
+        ),
       ]),
     );
+  }
+
+  /// Team sync at a glance: green synced, orange waiting, red failing.
+  Widget? _syncTrailing(BuildContext context, Map<String, Object?> s) {
+    if (s['inTeam'] != true) return null;
+    final c = context.c;
+    final pending = (s['pendingOps'] as num?)?.toInt() ?? 0;
+    final (color, tip) = s['error'] != null
+        ? (c.danger, 'Sync: ${s['error']}')
+        : (pending > 0 ? (c.warning, '$pending changes waiting to sync') : (c.success, 'Synced with ${s['teamName']}'));
+    return Tooltip(message: tip, child: Row(mainAxisSize: MainAxisSize.min, children: [
+      Icon(LucideIcons.cloud, size: 12, color: c.text2),
+      const SizedBox(width: 4),
+      Dot(color),
+    ]));
   }
 
   Widget _agentTrailing(BuildContext context, DataSnapshot data, AgentProfile a) {

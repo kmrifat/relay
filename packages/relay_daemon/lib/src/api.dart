@@ -206,7 +206,18 @@ class Api {
       M.runsEvents: (p) => [
         for (final e in store.events(_s(p, 'runId'), after: (p['after'] as num?)?.toInt() ?? 0, limit: (p['limit'] as num?)?.toInt())) e.toJson(),
       ],
-      M.runsStart: (p) async => (await supervisor.startRun(_s(p, 'taskId'), agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?)).toJson(),
+      M.runsStart: (p) async {
+        // Starting a run by hand takes the task to this device, unless a
+        // teammate's device is running it right now.
+        final t = ctx.task(_s(p, 'taskId'));
+        final active = t.data['activeRunId'] is String ? store.get<Run>(Kind.run, t.data['activeRunId'] as String) : null;
+        if (active != null && RunStatus.isActive(active.status) && active.deviceId != null && active.deviceId != ctx.deviceId) {
+          final where = store.get<DeviceInfo>(Kind.device, active.deviceId!)?.name ?? 'another device';
+          throw RpcError(RpcError.invalidParams, '${ctx.taskKey(t)} is running on $where.');
+        }
+        if (t.str('runOn') != ctx.deviceId) store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId, 'attention': null});
+        return (await supervisor.startRun(t.id, agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?)).toJson();
+      },
       M.runsSteer: (p) {
         supervisor.steer(_s(p, 'runId'), _s(p, 'text'));
         return true;

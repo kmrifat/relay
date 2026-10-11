@@ -47,6 +47,16 @@ Future<RelayClient> fakeRelayd() async {
     M.workspacesList: (_) => [
       {'taskId': 't1', 'changes': changes},
     ],
+    M.devicesList: (_) => [
+      {'id': 'dev', 'name': 'Studio', 'person': 'Rifat', 'lastSeen': now, 'agents': agents},
+      {'id': 'dev2', 'name': 'Air', 'person': 'Nadia', 'lastSeen': now, 'shareAgents': true, 'agents': [
+        {'id': 'codex', 'name': 'Codex', 'color': '#10A37F', 'letter': 'C', 'slots': 2},
+      ]},
+    ],
+    M.syncStatus: (_) => {'inTeam': true, 'teamName': 'binarycastle', 'deviceId': 'dev', 'pendingOps': 0, 'lastSync': now, 'intervalSeconds': 30, 'shareAgents': false,
+        'storage': {'kind': 'r2', 'bucket': 'relay', 'endpoint': 'https://acct.r2.cloudflarestorage.com'}},
+    M.status: (_) => {'version': 'test', 'protocol': protocolVersion, 'pid': 1, 'uptimeSeconds': 5, 'rssBytes': 12 << 20, 'deviceId': 'dev'},
+    M.settingsGet: (_) => {'userName': 'Rifat', 'deviceName': 'Studio'},
     M.commentsList: (_) => [
       {'id': 'cm1', 'taskId': 't1', 'authorKind': 'agent', 'author': 'Demo agent', 'body': 'Done. Wrote the share link.', 'createdAt': now},
     ],
@@ -92,6 +102,22 @@ void main() {
     expect(find.text('Change set'), findsOneWidget);
     expect(find.textContaining('Merged'), findsOneWidget);
     expect(find.text('Done. Wrote the share link.'), findsOneWidget);
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('settings shows the team, its devices and sync health', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 1000));
+    final client = await tester.runAsync(fakeRelayd);
+    await tester.pumpWidget(app(client!));
+    await settleUntil(tester, find.text('Share a recipe with a link'));
+    await tester.tap(find.text('Settings'));
+    await settleUntil(tester, find.text('binarycastle'));
+    expect(find.text('binarycastle'), findsOneWidget);
+    expect(find.textContaining('Synced'), findsOneWidget);
+    expect(find.text('Air'), findsOneWidget);
+    expect(find.text('This Mac'), findsWidgets);
+    expect(find.text('Shares agents'), findsOneWidget);
+    expect(find.byTooltip('Remove from team'), findsOneWidget); // not for this Mac
     await tester.binding.setSurfaceSize(null);
   });
 

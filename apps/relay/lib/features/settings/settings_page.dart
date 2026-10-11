@@ -5,6 +5,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import 'team_section.dart';
 
 class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({super.key});
@@ -15,6 +16,7 @@ class SettingsPage extends ConsumerStatefulWidget {
 class _SettingsPageState extends ConsumerState<SettingsPage> {
   Map<String, Object?> status = {};
   final name = TextEditingController();
+  final device = TextEditingController();
 
   @override
   void initState() {
@@ -30,6 +32,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     setState(() {
       status = s;
       name.text = '${settings['userName'] ?? ''}';
+      device.text = '${settings['deviceName'] ?? ''}';
     });
   }
 
@@ -38,7 +41,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     final c = context.c;
     final rss = (status['rssBytes'] as num?)?.toInt() ?? 0;
     return Column(children: [
-      const Toolbar(title: 'Settings', subtitle: 'General · relayd'),
+      const Toolbar(title: 'Settings', subtitle: 'You · Team · relayd'),
       Container(height: 1, color: c.separator),
       Expanded(
         child: ListView(padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 40), children: [
@@ -49,12 +52,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                 Text('You', style: context.label),
                 const SizedBox(height: 8),
                 Box(
-                  child: FieldRow('Your name', FieldInput(
-                    controller: name,
-                    hint: 'Shown on comments and merges',
-                    onSubmitted: (v) => ref.read(clientProvider).call(M.settingsSet, {'values': {'userName': v.trim()}}),
-                  ), labelWidth: 110),
+                  child: Column(children: [
+                    FieldRow('Your name', FieldInput(
+                      controller: name,
+                      hint: 'Shown on comments and merges',
+                      onSubmitted: (v) => ref.read(clientProvider).call(M.settingsSet, {'values': {'userName': v.trim()}}),
+                    ), labelWidth: 110),
+                    const Hairline(),
+                    FieldRow('This Mac', FieldInput(
+                      controller: device,
+                      hint: 'How teammates see this device',
+                      onSubmitted: (v) => ref.read(clientProvider).call(M.settingsSet, {'values': {'deviceName': v.trim()}}),
+                    ), labelWidth: 110),
+                  ]),
                 ),
+                const SizedBox(height: 20),
+                Text('Team', style: context.label),
+                const SizedBox(height: 8),
+                const TeamSection(),
                 const SizedBox(height: 20),
                 Text('relayd', style: context.label),
                 const SizedBox(height: 8),

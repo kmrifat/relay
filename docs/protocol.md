@@ -53,6 +53,8 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `term.open` | `{path, cols, rows, runId?}` | terminal id |
 | `term.input / resize / close` | `{termId, text \| data(base64)}` / `{termId, cols, rows}` / `{termId}` | true |
 | `term.takeover` | `{runId}` | pauses the agent and opens a shell in its workspace |
+| `sync.status / test / createTeam / invite / join / now / revoke / leave` | see [format/sync.md §6](format/sync.md#6-api-relayd) | team sync |
+| `devices.list` | — | team device records (name, person, agents, `shareAgents`, `lastSeen`) |
 
 ## Events (notifications from relayd)
 
@@ -63,6 +65,7 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `term.output` / `term.exit` | `{termId, data(base64)}` / `{termId, code}` |
 | `agent.state` | `{agents: [{id, active, slots, limitedUntil}]}` |
 | `notice` | `{text, level}` (info, warning, error, ask) |
+| `sync.state` | `sync.status`'s shape, after every sync pass |
 
 ## Run event types
 

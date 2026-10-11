@@ -112,12 +112,14 @@ class _NewTaskState extends ConsumerState<_NewTask> {
         'pipeline': [for (final s in steps) {'name': s.name, 'assigneeKind': s.kind, 'assignee': s.assignee, 'note': s.note, 'status': 'pending'}]
       else if (assignee == 'me')
         ...{'assigneeKind': 'person', 'assignee': userName}
+      else if (assignee.startsWith('dev:'))
+        ...{'assigneeKind': 'agent', 'assignee': assignee.split(':')[2], 'runOn': assignee.split(':')[1]}
       else
         ...{'assigneeKind': 'agent', 'assignee': assignee},
     };
     try {
       final t = await client.map(M.tasksCreate, {'projectId': projectId, 'fields': fields});
-      if (start == 'now' && !pipeline && assignee != 'me') {
+      if (start == 'now' && !pipeline && assignee != 'me' && !assignee.startsWith('dev:')) {
         try {
           await client.call(M.runsStart, {'taskId': t['id'], if (assignee != 'auto') 'agentId': assignee});
         } on RpcError catch (_) {}
@@ -135,6 +137,13 @@ class _NewTaskState extends ConsumerState<_NewTask> {
     final project = data.get<Project>(Kind.project, projectId)!;
     final repos = data.reposOf(projectId);
     final agents = data.agents.where((a) => a.binaryPath != null).toList();
+    // Teammates' agents, on devices that share them.
+    final me = ref.read(clientProvider).hello['deviceId'];
+    final shared = [
+      for (final d in data.devices.where((d) => d.id != me && d.shareAgents))
+        for (final a in d.agents) (d, a),
+    ];
+    final remote = shared.where((x) => assignee == 'dev:${x.$1.id}:${x.$2['id']}').firstOrNull;
     Widget row(String label, Widget child, {bool top = false}) => Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(crossAxisAlignment: top ? CrossAxisAlignment.start : CrossAxisAlignment.center, children: [
@@ -223,6 +232,7 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                     final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
                       ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
                       for (final a in agents) (a.id, a.name, LucideIcons.bot),
+                      for (final (d, a) in shared) ('dev:${d.id}:${a['id']}', '${a['name']} · ${d.person.isEmpty ? d.name : d.person}', LucideIcons.monitorSmartphone),
                       ('me', 'Me', LucideIcons.user),
                     ]);
                     if (v != null) setState(() => assignee = v);
@@ -232,7 +242,17 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                     decoration: BoxDecoration(color: c.control, borderRadius: BorderRadius.circular(5)),
                     child: Row(mainAxisSize: MainAxisSize.min, children: [
                       if (agents.any((a) => a.id == assignee)) ...[AgentTile(agent: agents.firstWhere((a) => a.id == assignee), size: 14), const SizedBox(width: 6)],
-                      Text(assignee == 'auto' ? 'Any agent' : (assignee == 'me' ? 'Me' : agents.firstWhere((a) => a.id == assignee).name), style: context.t(12)),
+                      if (remote != null) ...[AgentTile(agent: AgentProfile(remote.$2), size: 14), const SizedBox(width: 6)],
+                      Text(
+                        assignee == 'auto'
+                            ? 'Any agent'
+                            : (assignee == 'me'
+                                ? 'Me'
+                                : remote != null
+                                    ? '${remote.$2['name']} on ${remote.$1.person.isEmpty ? remote.$1.name : '${remote.$1.person}\'s Mac'}'
+                                    : agents.where((a) => a.id == assignee).firstOrNull?.name ?? assignee),
+                        style: context.t(12),
+                      ),
                       const SizedBox(width: 4),
                       Icon(LucideIcons.chevronDown, size: 11, color: c.text2),
                     ]),
