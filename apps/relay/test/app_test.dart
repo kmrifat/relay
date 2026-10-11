@@ -15,7 +15,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 /// An in-memory relayd: answers the calls the UI makes with seeded data.
-Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true, bool firstRun = false}) async {
+Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true, bool firstRun = false, Map<String, Object? Function(Map<String, Object?>)> extra = const {}}) async {
   final toServer = StreamController<List<int>>();
   final toClient = StreamController<List<int>>();
   final server = RpcPeer(toServer.stream, toClient.sink, name: 'fake-relayd');
@@ -81,7 +81,7 @@ Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true, bool fir
       {'id': 'cm1', 'taskId': 't1', 'authorKind': 'agent', 'author': 'Demo agent', 'body': 'Done. Wrote the share link.', 'createdAt': now},
     ],
   };
-  for (final e in handlers.entries) {
+  for (final e in {...handlers, ...extra}.entries) {
     server.registerMethod(e.key, e.value);
   }
   return RelayClient.attach(toClient.stream, toServer.sink, token: 'test');

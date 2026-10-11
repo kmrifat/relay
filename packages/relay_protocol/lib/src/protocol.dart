@@ -74,6 +74,13 @@ abstract final class M {
   static const termResize = 'term.resize';
   static const termClose = 'term.close';
   static const termTakeover = 'term.takeover';
+  static const termList = 'term.list';
+  static const termAttach = 'term.attach';
+
+  /// Small bits of this device's UI state (open tabs, saved commands),
+  /// kept by relayd so they outlive the app. Never synced.
+  static const uiGet = 'ui.get';
+  static const uiSet = 'ui.set';
 
   static const syncStatus = 'sync.status';
   static const syncTest = 'sync.test';

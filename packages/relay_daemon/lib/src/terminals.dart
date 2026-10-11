@@ -11,7 +11,9 @@ import 'package:relay_pty/relay_pty.dart';
 import 'context.dart';
 
 /// Interactive terminals for the Code view. Output is batched (≤ 30 frames
-/// a second per terminal) before it goes to clients.
+/// a second per terminal) before it goes to clients. They live as long as
+/// relayd, not the window: each keeps its recent output so the app can
+/// reattach after the Code view (or the app) closes.
 class Terminals {
   Terminals(this.ctx);
 
@@ -19,7 +21,11 @@ class Terminals {
   final _ptys = <String, Pty>{};
   final _buffers = <String, BytesBuilder>{};
   final _meta = <String, Map<String, Object?>>{};
+  final _scrollback = <String, BytesBuilder>{};
   Timer? _flush;
+
+  /// Output kept per terminal for [attach].
+  static const scrollbackBytes = 256 * 1024;
 
   /// The person's shell: `$SHELL -l` on macOS/Linux; on Windows PowerShell 7
   /// if installed, else Windows PowerShell, else cmd.exe.
@@ -51,7 +57,7 @@ class Terminals {
     );
     final id = newId();
     _ptys[id] = pty;
-    _meta[id] = {'cwd': cwd, 'command': shell, 'runId': ?runId};
+    _meta[id] = {'cwd': cwd, 'command': shell, 'runId': ?runId, 'openedAt': DateTime.now().toUtc().toIso8601String()};
     pty.output.listen((bytes) {
       (_buffers[id] ??= BytesBuilder(copy: false)).add(bytes);
       _flush ??= Timer(const Duration(milliseconds: 33), _flushAll);
@@ -64,6 +70,7 @@ class Terminals {
       _flushAll();
       _ptys.remove(id);
       _meta.remove(id);
+      _scrollback.remove(id);
       ctx.broadcast(E.termExit, {'termId': id, 'code': code});
     }));
     return id;
@@ -74,8 +81,30 @@ class Terminals {
     for (final e in _buffers.entries) {
       final bytes = e.value.takeBytes();
       if (bytes.isEmpty) continue;
+      _keep(e.key, bytes);
       ctx.broadcast(E.termOutput, {'termId': e.key, 'data': base64Encode(bytes)});
     }
+  }
+
+  /// Kept at broadcast time, so what [attach] returns is exactly the output
+  /// sent before its answer: a client applies `term.output` that arrives
+  /// after it, and drops what came before.
+  void _keep(String id, Uint8List bytes) {
+    if (!_ptys.containsKey(id)) return;
+    final kept = _scrollback[id] ??= BytesBuilder();
+    kept.add(bytes);
+    if (kept.length > scrollbackBytes * 2) {
+      final all = kept.takeBytes();
+      kept.add(Uint8List.sublistView(all, all.length - scrollbackBytes));
+    }
+  }
+
+  /// A terminal's recent output (base64) and what it is.
+  Map<String, Object?> attach(String id) {
+    _pty(id);
+    final kept = _scrollback[id]?.toBytes() ?? Uint8List(0);
+    final tail = kept.length > scrollbackBytes ? Uint8List.sublistView(kept, kept.length - scrollbackBytes) : kept;
+    return {'id': id, ..._meta[id]!, 'data': base64Encode(tail)};
   }
 
   Pty _pty(String id) => _ptys[id] ?? (throw RpcError(RpcError.notFound, 'No terminal $id'));
@@ -95,6 +124,7 @@ class Terminals {
     final pty = _ptys.remove(id);
     _meta.remove(id);
     _buffers.remove(id);
+    _scrollback.remove(id);
     if (pty != null) await pty.kill();
   }
 

@@ -285,8 +285,25 @@ void main() {
     final id = await client.call<String>(M.termOpen, {'path': cwd, 'cols': 80, 'rows': 24});
     await client.call(M.termInput, {'termId': id, 'text': 'echo relay-$id-ok${Platform.isWindows ? '\r' : '\n'}'});
     await waitFor(() async => out.toString().contains('relay-$id-ok') ? true : null, timeout: const Duration(seconds: 15));
+
+    // It outlives the window: listed, and a new view gets its recent output.
+    expect((await client.list(M.termList)).map((t) => t['id']), contains(id));
+    final again = await client.map(M.termAttach, {'termId': id});
+    expect(again['cwd'], cwd);
+    expect(utf8.decode(base64Decode(again['data'] as String), allowMalformed: true), contains('relay-$id-ok'));
+
     await client.call(M.termClose, {'termId': id});
+    expect((await client.list(M.termList)).map((t) => t['id']), isNot(contains(id)));
+    await expectLater(client.call(M.termAttach, {'termId': id}), throwsA(isA<RpcError>()));
     await sub.cancel();
+  });
+
+  test('ui state: kept per device, cleared with null', () async {
+    expect(await client.call<String?>(M.uiGet, {'key': 'terminal.commands'}), isNull);
+    await client.call(M.uiSet, {'key': 'terminal.commands', 'value': '[{"name":"Test","command":"dart test"}]'});
+    expect(await client.call<String?>(M.uiGet, {'key': 'terminal.commands'}), contains('dart test'));
+    await client.call(M.uiSet, {'key': 'terminal.commands', 'value': null});
+    expect(await client.call<String?>(M.uiGet, {'key': 'terminal.commands'}), isNull);
   });
 
   test('files: listing and reading are limited to repos and workspaces', () async {
