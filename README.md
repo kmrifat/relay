@@ -48,6 +48,16 @@ tool/out/relay task add "Share a recipe with a link" --project KT --agent demo -
 
 The **Demo agent** is built in and needs no account. To use a real agent, sign its CLI in first (for example `claude /login`), then press **Find CLIs** under Agents.
 
+## Contributing
+
+`main` is protected by a local git hook until the repo is on a GitHub plan with branch protection. Turn it on once per checkout:
+
+```bash
+git config core.hooksPath tool/git-hooks
+```
+
+The hook refuses three things: pushing straight to `main`, deleting it, and force-pushing any branch. Work on a branch and open a pull request (`gh pr create`). For a one-off override, run `RELAY_ALLOW_MAIN_PUSH=1 git push`.
+
 ## Test
 
 ```bash
