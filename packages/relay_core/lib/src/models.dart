@@ -11,8 +11,13 @@ abstract final class Kind {
   static const agent = 'agent';
   static const change = 'change';
   static const rule = 'rule';
+  static const device = 'device';
 
-  static const all = [project, repo, task, comment, run, agent, change, rule];
+  static const all = [project, repo, task, comment, run, agent, change, rule, device];
+
+  /// Kinds shared with the team. Agent profiles and routing rules describe
+  /// this device's CLIs and preferences, so they stay local.
+  static const synced = {project, repo, task, comment, run, change, device};
 }
 
 /// Base for every synced record: a JSON map with an `id`.
@@ -78,6 +83,7 @@ Entity entityFrom(String kind, Map<String, Object?> data) => switch (kind) {
   Kind.agent => AgentProfile(data),
   Kind.change => ChangeEntry(data),
   Kind.rule => RoutingRule(data),
+  Kind.device => DeviceInfo(data),
   _ => throw ArgumentError('Unknown kind $kind'),
 };
 
@@ -112,9 +118,12 @@ class Repo extends Entity {
   String? get testCommand => str('testCommand');
   String? get remoteUrl => str('remoteUrl');
 
-  /// Where this device has the repo checked out. Device-local in practice;
-  /// stored per device id under `paths`.
-  String? pathOn(String deviceId) => (data['paths'] as Map?)?[deviceId] as String?;
+  /// Where [deviceId] has the repo checked out. Each device sets its own
+  /// `path@<device>` field, so two devices never overwrite each other's
+  /// path when their ops merge. (`paths` is the pre-sync form.)
+  String? pathOn(String deviceId) => data['path@$deviceId'] as String? ?? (data['paths'] as Map?)?[deviceId] as String?;
+
+  static String pathField(String deviceId) => 'path@$deviceId';
 
   /// Merge order: lower steps merge first; equal steps can merge together.
   int get mergeStep => intOr('mergeStep', 0);
@@ -349,6 +358,27 @@ class ChangeEntry extends Entity {
   String? get prUrl => str('prUrl');
   String? get checks => str('checks');
   String? get mergedBy => str('mergedBy');
+}
+
+/// A device in the team (a teammate's Mac), published by the device itself.
+class DeviceInfo extends Entity {
+  const DeviceInfo(super.data);
+  @override
+  String get kind => Kind.device;
+
+  /// e.g. "Rifat's MacBook Pro".
+  String get name => str('name') ?? id;
+
+  /// The person who uses it.
+  String get person => str('person') ?? '';
+
+  /// The agent CLIs on it: `[{id, name, color, letter, slots, version}]`.
+  List<Map<String, Object?>> get agents => maps('agents');
+
+  /// Whether teammates may assign work to this device's agents.
+  bool get shareAgents => boolOr('shareAgents', false);
+  DateTime? get lastSeen => _date(data['lastSeen']);
+  bool get revoked => boolOr('revoked', false);
 }
 
 /// "If tag is #tests then DeepSeek." Rules are checked top to bottom.

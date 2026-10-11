@@ -93,8 +93,16 @@ class Workspaces {
       'projectId': task.projectId,
       'branch': branch,
       'worktreePath': worktree,
+      'deviceId': ctx.deviceId,
       'status': 'pending',
     });
+  }
+
+  bool _mine(ChangeEntry c) => (c.data['deviceId'] as String? ?? ctx.deviceId) == ctx.deviceId;
+
+  String _deviceName(ChangeEntry c) {
+    final id = c.data['deviceId'] as String?;
+    return (id == null ? null : ctx.store.get<DeviceInfo>(Kind.device, id)?.name) ?? 'another device';
   }
 
   List<ChangeEntry> changesOf(String taskId) => ctx.store.list<ChangeEntry>(Kind.change, taskId: taskId);
@@ -155,6 +163,7 @@ class Workspaces {
   Future<void> refresh(Task task, {String? agentId, bool commit = false, bool settle = false}) async {
     final project = ctx.project(task.projectId);
     for (final c in changesOf(task.id)) {
+      if (!_mine(c)) continue;
       final wt = c.worktreePath;
       if (wt == null || !Directory(wt).existsSync()) continue;
       final repo = ctx.store.get<Repo>(Kind.repo, c.repoId);
@@ -236,6 +245,10 @@ class Workspaces {
         final c = changes[repo.id];
         if (c == null || c.status == 'merged') continue;
         if (repoId != null && repo.id != repoId) continue;
+        if (!_mine(c)) {
+          results.add({'repo': repo.name, 'ok': false, 'error': 'This change was made on ${_deviceName(c)}; merge it there.'});
+          return results;
+        }
         final source = repo.pathOn(ctx.deviceId);
         if (source == null) {
           results.add({'repo': repo.name, 'ok': false, 'error': 'not cloned here'});
@@ -285,7 +298,7 @@ class Workspaces {
     final gh = whichOnPath('gh', ctx.env['PATH'] ?? '');
     for (final c in changesOf(task.id)) {
       if (repoId != null && c.repoId != repoId) continue;
-      if (c.status == 'merged' || c.worktreePath == null) continue;
+      if (c.status == 'merged' || c.worktreePath == null || !_mine(c)) continue;
       final repo = ctx.store.get<Repo>(Kind.repo, c.repoId);
       if (repo == null) continue;
       final remote = await ctx.git.remoteUrl(c.worktreePath!);

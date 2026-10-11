@@ -68,6 +68,9 @@ class DataSnapshot {
   List<Task> tasksOf(String? projectId) => all<Task>(Kind.task).where((t) => projectId == null || t.projectId == projectId).toList();
   List<Run> runsOf(String taskId) => all<Run>(Kind.run).where((r) => r.taskId == taskId).toList()..sort((a, b) => a.id.compareTo(b.id));
   List<ChangeEntry> changesOf(String taskId) => all<ChangeEntry>(Kind.change).where((c) => c.taskId == taskId).toList();
+  /// Team devices (this Mac included), most recently seen first.
+  List<DeviceInfo> get devices => all<DeviceInfo>(Kind.device).where((d) => !d.revoked).toList()
+    ..sort((a, b) => (b.lastSeen ?? DateTime(2000)).compareTo(a.lastSeen ?? DateTime(2000)));
   List<RoutingRule> get rules => all<RoutingRule>(Kind.rule).toList()..sort((a, b) => a.order.compareTo(b.order));
   Project? projectOf(Task t) => get<Project>(Kind.project, t.projectId);
   String keyOf(Task t) => t.displayKey(projectOf(t)?.key ?? '?');
@@ -81,7 +84,7 @@ class DataNotifier extends Notifier<DataSnapshot> {
   /// Repos carry checkout paths per device; expose this Mac's as `localPath`.
   Map<String, Object?> _withLocal(String kind, Map<String, Object?> data) {
     if (kind != Kind.repo) return data;
-    final path = (data['paths'] as Map?)?[_device] as String?;
+    final path = data['path@$_device'] as String? ?? (data['paths'] as Map?)?[_device] as String?;
     return {...data, 'localPath': path};
   }
 
@@ -104,6 +107,7 @@ class DataNotifier extends Notifier<DataSnapshot> {
       Kind.agent: M.agentsList,
       Kind.rule: M.rulesList,
       Kind.run: M.runsList,
+      Kind.device: M.devicesList,
     };
     final next = <String, Map<String, Entity>>{for (final k in Kind.all) k: {}};
     for (final e in kinds.entries) {
@@ -184,3 +188,21 @@ final noticesProvider = StreamProvider<Map<String, Object?>>((ref) {
   final client = ref.watch(clientProvider);
   return client.events.where((e) => e.method == E.notice).map((e) => e.params);
 });
+
+/// Team sync state: `sync.status`, then every `sync.state` event.
+class SyncStatusNotifier extends Notifier<Map<String, Object?>> {
+  @override
+  Map<String, Object?> build() {
+    final client = ref.watch(clientProvider);
+    final sub = client.events.where((e) => e.method == E.syncState).listen((e) => state = e.params);
+    ref.onDispose(sub.cancel);
+    Future.microtask(refresh);
+    return const {};
+  }
+
+  Future<void> refresh() async => state = await ref.read(clientProvider).map(M.syncStatus);
+
+  void set(Map<String, Object?> s) => state = s;
+}
+
+final syncStatusProvider = NotifierProvider<SyncStatusNotifier, Map<String, Object?>>(SyncStatusNotifier.new);

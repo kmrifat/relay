@@ -7,6 +7,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import 'context.dart';
+import 'sync_service.dart';
 import 'workspaces.dart';
 
 /// Starts agent runs, turns their events into run events and task status,
@@ -19,6 +20,9 @@ class Supervisor {
 
   final DaemonContext ctx;
   final Workspaces workspaces;
+
+  /// Set by the daemon; used to publish this device's agent use.
+  SyncService? sync;
   final _sessions = <String, AgentSession>{}; // runId → session
   final _deadlines = <String, Timer>{}; // runId → stop-after timer
   Timer? _timer;
@@ -48,6 +52,8 @@ class Supervisor {
   /// (their process is gone); mark them stopped so the task can be retried.
   void _recoverInterruptedRuns() {
     for (final r in ctx.store.list<Run>(Kind.run)) {
+      // Teammates' runs are theirs to recover.
+      if (r.deviceId != null && r.deviceId != ctx.deviceId) continue;
       if (RunStatus.isActive(r.status)) {
         ctx.store.patch<Run>(Kind.run, r.id, {
           'status': RunStatus.stopped,
@@ -78,6 +84,7 @@ class Supervisor {
       for (final t in queued) {
         if (totalActive >= maxTotal) break;
         if (t.data['activeRunId'] != null) continue;
+        if (!_runsHere(t)) continue;
         if (!_ready(t)) continue;
         final agentId = pickAgent(t);
         if (agentId == null) continue;
@@ -95,6 +102,21 @@ class Supervisor {
     } finally {
       _ticking = false;
     }
+  }
+
+  /// Whether this device should run [t]: it is the task's `runOn` device,
+  /// and, if a teammate queued it here, this device shares its agents.
+  bool _runsHere(Task t) {
+    final runOn = t.str('runOn') ?? t.str('createdOn') ?? (sync?.inTeam ?? false ? null : ctx.deviceId);
+    if (runOn != ctx.deviceId) return false;
+    final from = t.str('createdOn');
+    if (from != null && from != ctx.deviceId && !ctx.boolSetting('shareAgents', false)) {
+      if (t.data['attention'] != 'not-shared') {
+        ctx.store.patch<Task>(Kind.task, t.id, {'attention': 'not-shared'});
+      }
+      return false;
+    }
+    return true;
   }
 
   bool _ready(Task t) {

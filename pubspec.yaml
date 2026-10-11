@@ -12,6 +12,7 @@ workspace:
   - packages/relay_agents
   - packages/relay_git
   - packages/relay_pty
+  - packages/relay_sync
   - packages/relay_daemon
 
 dev_dependencies:

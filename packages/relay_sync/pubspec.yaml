@@ -1,0 +1,19 @@
+name: relay_sync
+description: "Relay sync: end-to-end encrypted op log over R2/S3 or a shared folder, team keys, invites. Pure Dart."
+publish_to: none
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.13.4
+
+dependencies:
+  crypto: ^3.0.6
+  cryptography: ^2.7.0
+  http: ^1.2.0
+  meta: ^1.16.0
+  relay_core: ^0.1.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
