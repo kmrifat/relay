@@ -30,9 +30,12 @@ if [[ -n "$win" ]]; then
 else
   src="$root/packages/relay_pty/native/relay_pty.c"
   if [[ ! -f "$out/relay-pty" ]] || [[ "$src" -nt "$out/relay-pty" ]]; then
-    libs=()
-    [[ "$(uname -s)" == "Linux" ]] && libs=(-lutil)
-    cc -O2 -Wall -o "$out/relay-pty" "$src" "${libs[@]}"
+    # Not an array: macOS's bash 3.2 calls an empty one unbound under set -u.
+    if [[ "$(uname -s)" == "Linux" ]]; then
+      cc -O2 -Wall -o "$out/relay-pty" "$src" -lutil
+    else
+      cc -O2 -Wall -o "$out/relay-pty" "$src"
+    fi
   fi
 fi
 

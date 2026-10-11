@@ -14,6 +14,42 @@ Three places must agree, and `tool/release/check_version.sh v0.2.0` checks them:
 
 ## 2. macOS: sign, notarize, staple (M9-03)
 
+### Getting what signing needs (once)
+
+1. **Join the Apple Developer Program** ($99 a year) at developer.apple.com/programs with your Apple ID, as an individual or an organization. Wait for "Active".
+2. **Make a *Developer ID Application* certificate.** This is the kind for apps distributed outside the Mac App Store.
+   1. On your Mac, open Keychain Access → Certificate Assistant → *Request a Certificate From a Certificate Authority…*.
+   2. Enter your email, choose *Saved to disk*, and save the `.certSigningRequest` file.
+   3. On developer.apple.com → Certificates → **+** → *Developer ID Application*, upload that file, then download the `.cer` and double-click it. It lands in Keychain Access → login → My Certificates, together with its private key.
+
+   You can do the same from Xcode → Settings → Accounts → Manage Certificates → **+** → Developer ID Application.
+3. **Export it for CI.** In Keychain Access → My Certificates, right-click *Developer ID Application: <you> (TEAMID)* → Export… → `.p12`, with a strong password. Then run:
+
+   ```bash
+   base64 -i DeveloperID.p12 | pbcopy
+   ```
+
+   That puts the value for `MACOS_CERT_P12_BASE64` on your clipboard.
+4. **Team ID:** developer.apple.com → Membership details, or the `(TEAMID)` in the certificate's name.
+5. **App-specific password for notarization:** account.apple.com → Sign-In and Security → App-Specific Passwords → **+** (name it "Relay notarization").
+6. **Add the secrets** in GitHub → kmrifat/relay → Settings → Secrets and variables → Actions → New repository secret. The five names are in the table below.
+
+The next `v*` tag builds `Relay-macos.dmg`: signed, notarized and stapled. It opens on any Mac without a Gatekeeper warning.
+
+To sign on your own Mac instead: build with `flutter build macos --release`, export the same five variables in your shell, and run `../../tool/release/macos_sign_notarize.sh` from `apps/relay`.
+
+### What the DMG looks like
+
+`tool/release/macos_dmg.sh` builds the window people see:
+
+- Relay and an Applications shortcut, with an arrow between them, on `design/dmg/background.tiff`;
+- it uses `dmgbuild` (pinned), so no Finder scripting is needed and it works on CI;
+- redraw the background with `tool/render_dmg_background.swift`. Its icon centres must match `tool/release/dmg_settings.py`.
+
+Unsigned builds use the same DMG (`Relay-macos-unsigned.dmg`). Without notarization, the first open needs right-click → Open.
+
+### Secrets
+
 Repository secrets:
 
 | Secret | What |
@@ -24,7 +60,7 @@ Repository secrets:
 | `APPLE_ID` | the Apple ID used for notarization |
 | `APPLE_APP_PASSWORD` | an app-specific password for that Apple ID (appleid.apple.com) |
 
-`macos_sign_notarize.sh` signs from the inside out (Sparkle's helpers, frameworks and dylibs, `relay` and `relay-pty` with `Helper.entitlements`, then the app). It then makes `Relay-macos.dmg`, notarizes it, staples it and checks it with `spctl`.
+`macos_sign_notarize.sh` signs from the inside out (Sparkle's helpers, frameworks and dylibs, `relay` and `relay-pty` with `Helper.entitlements`, then the app). It then makes the DMG with `macos_dmg.sh`, signs it, notarizes it, staples it and checks it with `spctl`.
 
 The LaunchAgent plist (`Contents/Library/LaunchAgents`) is covered by the app's seal.
 
