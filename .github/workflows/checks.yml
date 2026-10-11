@@ -77,13 +77,15 @@ jobs:
           git config --global core.autocrlf false
       - run: flutter pub get
       - run: tool/build_pty.sh
-      - name: Package tests
+      - name: Package tests (every package runs; the step fails at the end)
         run: |
+          failed=()
           for p in relay_core relay_protocol relay_agents relay_git relay_pty relay_sync relay_daemon; do
             echo "::group::$p"
-            (cd "packages/$p" && dart test) || exit 1
+            (cd "packages/$p" && dart test) || failed+=("$p")
             echo "::endgroup::"
           done
+          if (( ${#failed[@]} )); then echo "::error::failed: ${failed[*]}"; exit 1; fi
       - name: Windows app with relayd in helpers/
         run: |
           tool/build_relay_helper.sh tool/out
