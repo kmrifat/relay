@@ -277,7 +277,7 @@ void main() {
       out.write(utf8.decode(base64Decode(e.params['data'] as String)));
     });
     final id = await client.call<String>(M.termOpen, {'path': cwd, 'cols': 80, 'rows': 24});
-    await client.call(M.termInput, {'termId': id, 'text': 'echo relay-$id-ok${Platform.isWindows ? '\r' : ''}\n'});
+    await client.call(M.termInput, {'termId': id, 'text': 'echo relay-$id-ok${Platform.isWindows ? '\r' : '\n'}'});
     await waitFor(() async => out.toString().contains('relay-$id-ok') ? true : null, timeout: const Duration(seconds: 15));
     await client.call(M.termClose, {'termId': id});
     await sub.cancel();

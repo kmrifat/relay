@@ -56,7 +56,8 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 100));
     }
     pty.resize(120, 40);
-    pty.writeString('echo typed-%COMSPEC:~0,1%-ok\r\nexit 5\r\n');
+    // Enter is \r, as a terminal sends it (a \n reaches cmd as Ctrl+J, a continuation).
+    pty.writeString('echo typed-%COMSPEC:~0,1%-ok\rexit 5\r');
     final code = await pty.exitCode.timeout(const Duration(seconds: 15), onTimeout: () {
       printOnFailure('--- helper log ---\n$log\n--- terminal output ---\n${buf.toString().replaceAll('\x1b', '<ESC>')}');
       pty.kill();
