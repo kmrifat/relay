@@ -14,7 +14,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 /// An in-memory relayd: answers the calls the UI makes with seeded data.
-Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true}) async {
+Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true, bool firstRun = false}) async {
   final toServer = StreamController<List<int>>();
   final toClient = StreamController<List<int>>();
   final server = RpcPeer(toServer.stream, toClient.sink, name: 'fake-relayd');
@@ -39,7 +39,9 @@ Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true}) async {
   ];
   final handlers = <String, Object? Function(Map<String, Object?>)>{
     M.hello: (_) => {'version': 'test', 'protocol': protocolVersion, 'deviceId': 'dev', 'userName': 'Rifat'},
-    M.projectsList: (_) => [project],
+    M.projectsList: (_) => firstRun ? [] : [project],
+    M.agentsDetect: (_) => agents,
+    M.settingsSet: (_) => {},
     M.reposList: (_) => repos,
     M.tasksList: (_) => tasks,
     M.agentsList: (_) => agents,
@@ -158,6 +160,24 @@ void main() {
     await tester.pump();
     expect(find.text('Create task'), findsOneWidget);
     expect(find.textContaining('Codex · Nadia'), findsOneWidget); // @ suggestions
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('first run on the Mac: onboarding', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    final client = await tester.runAsync(() => fakeRelayd(firstRun: true));
+    await tester.pumpWidget(app(client!));
+    await settleUntil(tester, find.text('Welcome to Relay'));
+    expect(find.text('Your agents, on your Mac'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await settleUntil(tester, find.text('Demo agent'));
+    expect(find.text('Agents on this Mac'), findsOneWidget);
+    await tester.tap(find.text('Continue'));
+    await tester.pump();
+    expect(find.text('Pick a repository'), findsOneWidget);
+    await tester.tap(find.text('Later'));
+    await tester.pump();
+    expect(find.text('Set up a team'), findsOneWidget);
     await tester.binding.setSurfaceSize(null);
   });
 

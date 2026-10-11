@@ -1,0 +1,96 @@
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:relay_daemon/relay_daemon.dart' show relayVersion;
+
+import '../../app/theme.dart';
+import '../../data/system.dart';
+import '../../ui/widgets.dart';
+
+/// Settings → This Mac (M9-02/03): relayd at login, the menu bar item,
+/// updates. Only on macOS.
+class MacSection extends ConsumerStatefulWidget {
+  const MacSection({super.key});
+  @override
+  ConsumerState<MacSection> createState() => _MacSectionState();
+}
+
+class _MacSectionState extends ConsumerState<MacSection> {
+  String? login;
+  bool canUpdate = false;
+  bool menuBar = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final l = await SystemBridge.instance.loginItem();
+    final u = await SystemBridge.instance.canUpdate();
+    if (!mounted) return;
+    setState(() {
+      login = l;
+      canUpdate = u;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Platform.isMacOS) return const SizedBox.shrink();
+    final c = context.c;
+    Widget toggle(String label, String help, bool value, ValueChanged<bool>? onChanged) => Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      child: Row(children: [
+        SizedBox(width: 110, child: Text(label, style: context.t(12, color: c.text2))),
+        Expanded(child: Text(help, style: context.t(11, color: c.text3))),
+        Transform.scale(scale: 0.7, child: Switch(value: value, onChanged: onChanged, activeTrackColor: c.accent)),
+      ]),
+    );
+    final loginHelp = switch (login) {
+      'enabled' => 'relayd starts when you log in, so queued and overnight work runs without opening Relay.',
+      'needsApproval' => 'Allow "Relay" in System Settings → General → Login Items.',
+      'unsupported' => 'Needs macOS 13 or later.',
+      'notFound' => 'This build has no login agent (run a full macOS build).',
+      _ => 'Start relayd when you log in, so queued and overnight work runs.',
+    };
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      Text('This Mac', style: context.label),
+      const SizedBox(height: 8),
+      Box(
+        child: Column(children: [
+          toggle('Start at login', loginHelp, login == 'enabled' || login == 'needsApproval', login == 'unsupported' || login == null
+              ? null
+              : (v) async {
+                  try {
+                    final s = await SystemBridge.instance.setLoginItem(v);
+                    setState(() {
+                      login = s;
+                      error = null;
+                    });
+                  } catch (e) {
+                    setState(() => error = '$e');
+                  }
+                }),
+          const Hairline(),
+          toggle('Menu bar', 'Keep Relay in the menu bar when its window is closed: what runs, what waits on you, pause new work.', menuBar, (v) {
+            setState(() => menuBar = v);
+            SystemBridge.instance.keepInMenuBar(v);
+          }),
+          const Hairline(),
+          FieldRow('Updates', Row(children: [
+            Expanded(
+              child: Text(canUpdate ? 'Relay $relayVersion' : 'Relay $relayVersion · this build can\'t update itself yet', style: context.t(12)),
+            ),
+            Btn('Check for Updates…', small: true, onTap: canUpdate ? () => SystemBridge.instance.checkForUpdates() : null),
+          ]), labelWidth: 110),
+        ]),
+      ),
+      if (error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(error!, style: context.t(11, color: c.danger))),
+      const SizedBox(height: 20),
+    ]);
+  }
+}

@@ -73,6 +73,8 @@ class Supervisor {
   /// Starts queued tasks that are ready. Safe to call any time.
   Future<void> tick() async {
     if (_ticking) return;
+    // "Pause new work" (menu bar, phone): running work goes on, nothing new starts.
+    if (ctx.boolSetting('schedulerPaused', false)) return;
     _ticking = true;
     try {
       final maxTotal = ctx.intSetting('maxConcurrent', 4);

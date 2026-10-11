@@ -1,0 +1,79 @@
+name: release
+# Push a tag v<version> (matching apps/relay/pubspec.yaml and relayVersion)
+# to build, sign, notarize and publish. Each job skips itself when its
+# secrets aren't set (docs/release.md).
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  macos:
+    runs-on: macos-15
+    env:
+      HAS_CERT: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+      HAS_SPARKLE: ${{ secrets.SPARKLE_ED_PRIVATE_KEY != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        run: echo "pair=$(tool/release/check_version.sh '${{ github.ref_name }}')" >> "$GITHUB_OUTPUT"
+      - if: env.HAS_CERT != 'true'
+        run: echo "::warning::No Developer ID secrets; building unsigned only."
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
+      - run: cd apps/relay && flutter build macos --release
+      - name: Sign, notarize, staple
+        if: env.HAS_CERT == 'true'
+        working-directory: apps/relay
+        env:
+          MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: ../../tool/release/macos_sign_notarize.sh
+      - name: Appcast
+        if: env.HAS_CERT == 'true' && env.HAS_SPARKLE == 'true'
+        working-directory: apps/relay
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+          RELEASE_BASE_URL: ${{ vars.RELEASE_BASE_URL }}
+        run: |
+          set -- ${{ steps.v.outputs.pair }}
+          ../../tool/release/macos_appcast.sh Relay-macos.dmg "$1" "$2"
+      - name: GitHub release
+        if: env.HAS_CERT == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          files=(apps/relay/Relay-macos.dmg)
+          [[ -f apps/relay/appcast.xml ]] && files+=(apps/relay/appcast.xml)
+          gh release create '${{ github.ref_name }}' "${files[@]}" --title "Relay ${{ github.ref_name }}" --generate-notes
+
+  ios:
+    runs-on: macos-15
+    env:
+      HAS_IOS: ${{ secrets.IOS_DIST_CERT_P12_BASE64 != '' && secrets.APP_STORE_CONNECT_KEY_ID != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: tool/release/check_version.sh '${{ github.ref_name }}'
+      - if: env.HAS_IOS != 'true'
+        run: echo "::warning::No App Store secrets; skipping TestFlight."
+      - uses: subosito/flutter-action@v2
+        if: env.HAS_IOS == 'true'
+        with:
+          channel: stable
+      - if: env.HAS_IOS == 'true'
+        run: flutter pub get && cd apps/relay && flutter build ios --release --config-only
+      - name: TestFlight
+        if: env.HAS_IOS == 'true'
+        working-directory: apps/relay
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+        run: ../../tool/release/ios_testflight.sh

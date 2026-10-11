@@ -268,7 +268,13 @@ class _InTeam extends ConsumerWidget {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             child: Row(children: [
               SizedBox(width: 120, child: Text('Share my agents', style: context.t(12, color: c.text2))),
-              Expanded(child: Text('Teammates may queue work on this Mac\'s agents (your subscriptions, your machine).', style: context.t(11, color: c.text3))),
+              Expanded(
+                child: Text(
+                  'Teammates may queue work on this Mac\'s agents. Personal plans (Claude Pro/Max, ChatGPT, a personal Google login) are meant for your own use — '
+                  'share agents signed in with an API key or a Team plan (docs/terms-check.md).',
+                  style: context.t(11, color: c.text3),
+                ),
+              ),
               Transform.scale(scale: 0.7, child: Switch(value: s['shareAgents'] == true, onChanged: (v) => setting('shareAgents', v), activeTrackColor: c.accent)),
             ]),
           ),

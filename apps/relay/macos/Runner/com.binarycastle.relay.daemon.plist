@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- relayd at login (M9-02). Registered by LoginItem.swift with SMAppService;
+     launchd starts Relay.app/Contents/Helpers/relay daemon. If relayd is
+     already running, the new one exits 0 and launchd leaves it at that. -->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.binarycastle.relay.daemon</string>
+	<key>BundleProgram</key>
+	<string>Contents/Helpers/relay</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>Contents/Helpers/relay</string>
+		<string>daemon</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>ProcessType</key>
+	<string>Background</string>
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>com.binarycastle.relay</string>
+	</array>
+</dict>
+</plist>

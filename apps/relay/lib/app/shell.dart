@@ -6,11 +6,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:relay_core/relay_core.dart';
+import 'package:relay_protocol/relay_protocol.dart';
 
+import '../data/system.dart';
 import '../data/notifications.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
 import '../features/channel/channel_page.dart';
+import '../features/onboarding/onboarding_page.dart';
 import '../features/agents/fleet_page.dart';
 import '../features/project/project_dialogs.dart';
 import '../features/project/project_page.dart';
@@ -68,10 +71,38 @@ class _ShellState extends ConsumerState<Shell> {
   }
 
   int _badge = -1;
+  bool _paused = false;
+
+  /// First run: no projects and onboarding not done (decided once at start,
+  /// so adding the first repo doesn't end it early).
+  bool _onboarding = false;
 
   @override
   void initState() {
     super.initState();
+    SystemBridge.instance
+      ..init()
+      ..onMenu = (action, args) async {
+        final client = ref.read(clientProvider);
+        switch (action) {
+          case 'openTask':
+            final id = args['taskId'] as String? ?? '';
+            if (id.isNotEmpty) ref.read(navProvider.notifier).openTask(id);
+          case 'pause' || 'resume':
+            await client.call(M.settingsSet, {'values': {'schedulerPaused': action == 'pause'}});
+            if (mounted) setState(() => _paused = action == 'pause');
+        }
+      };
+    Future.microtask(() async {
+      final client = ref.read(clientProvider);
+      final s = await client.map(M.settingsGet);
+      final projects = await client.list(M.projectsList);
+      if (!mounted) return;
+      setState(() {
+        _paused = '${s['schedulerPaused']}' == 'true';
+        _onboarding = '${s['onboarded']}' != 'true' && projects.isEmpty;
+      });
+    });
     NativeNotifications.instance
       ..init()
       ..onOpen = (info) {
@@ -140,6 +171,14 @@ class _ShellState extends ConsumerState<Shell> {
       _badge = waiting;
       NativeNotifications.instance.badge(waiting);
     }
+    // The menu bar item: running, waiting on you, and those tasks.
+    final waitingTasks = data.tasksOf(null).where((t) => inSmartList(AppPage.waiting, t)).toList();
+    SystemBridge.instance.status(
+      running: data.all<Run>(Kind.run).where((r) => RunStatus.isActive(r.status)).length,
+      waiting: waitingTasks.length,
+      paused: _paused,
+      items: [for (final t in waitingTasks.take(6)) (t.id, '${data.keyOf(t)}  ${t.title}')],
+    );
 
     Widget content;
     if (nav.taskId != null && data.get<Task>(Kind.task, nav.taskId) != null) {
@@ -165,7 +204,7 @@ class _ShellState extends ConsumerState<Shell> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          body: Row(children: [
+          body: _onboarding ? OnboardingPage(onDone: () => setState(() => _onboarding = false)) : Row(children: [
             const SizedBox(width: 220, child: Sidebar()),
             Container(width: 1, color: context.c.separator),
             Expanded(child: content),

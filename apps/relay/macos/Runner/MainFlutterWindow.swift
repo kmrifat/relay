@@ -3,6 +3,8 @@ import FlutterMacOS
 import UserNotifications
 
 class MainFlutterWindow: NSWindow {
+  private var updater: AppUpdater?
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     self.contentViewController = flutterViewController
@@ -21,6 +23,10 @@ class MainFlutterWindow: NSWindow {
 
     RegisterGeneratedPlugins(registry: flutterViewController)
     Notifications.shared.attach(flutterViewController.engine.binaryMessenger)
+    StatusMenu.shared.attach(flutterViewController.engine.binaryMessenger)
+    updater = AppUpdater(messenger: flutterViewController.engine.binaryMessenger)
+    // Closing the window hides it; Relay stays in the menu bar (M9-02).
+    self.isReleasedWhenClosed = false
 
     super.awakeFromNib()
   }

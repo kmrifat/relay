@@ -10,7 +10,7 @@ Relay is the working name for the TaskManager project. It is a local-first, AI-n
 
 ## Status (2026-10-11)
 
-M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](acceptance/m0-m5.md). M6 (team sync), M7 (Worker, live, channels, notifications) and M8 (iPhone) are built; see [acceptance/m6.md](acceptance/m6.md), [acceptance/m7.md](acceptance/m7.md), [acceptance/m8.md](acceptance/m8.md), [format/sync.md](format/sync.md) and [format/worker.md](format/worker.md).
+M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](acceptance/m0-m5.md). M6 (team sync), M7 (Worker, live, channels, notifications) and M8 (iPhone) are built; M9 (ship) is built up to the owner's decisions and signing accounts; see [acceptance/m6.md](acceptance/m6.md), [acceptance/m7.md](acceptance/m7.md), [acceptance/m8.md](acceptance/m8.md), [acceptance/m9.md](acceptance/m9.md), [release.md](release.md), [format/sync.md](format/sync.md) and [format/worker.md](format/worker.md).
 
 | Milestone | State | Notes |
 |---|---|---|
@@ -23,6 +23,7 @@ M0–M5 are built and ready for the owner's testing. See [acceptance/m0-m5.md](a
 | M6 Team sync | ✅ | E2E-encrypted op log on R2 / S3 / a shared folder; one-time invites; revoke rotates the key; teammates' shared agents; Settings → Team |
 | M7 Live | ✅ | Team Worker + Durable Object deployed by Relay (no wrangler, no shared keys); live room with pokes, streamed run steps and presence; channels (T04) with `/task`, `@agent`, agent reports, digest, encrypted files, reactions, pins; macOS notifications and Dock badge |
 | M8 iPhone | ✅ | Liquid Glass kit; I01–I05 on the same data layer (relayd's sync/channels in-process); pairing by QR; signed phone→Mac commands; APNs push through the team Worker with your own key. Real-device push needs your Apple key and a signed build (M9) |
+| M9 Ship | 🟡 | Built: onboarding, relayd at login (SMAppService LaunchAgent), menu bar item with pause new work, app icons, Sparkle (off until a public release home), sign/notarize/appcast/TestFlight scripts and the release workflow, provider terms notes (docs/terms-check.md). Waiting on the owner: name (1), licence/model (4), terms (5), Apple and Cloudflare accounts for a first signed release |
 
 **Still to verify with a live agent account:**
 - Claude Code's permission control messages, with `claude /login` done.

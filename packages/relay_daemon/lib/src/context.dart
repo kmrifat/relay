@@ -62,9 +62,9 @@ class DaemonContext {
     'userName': 'You',
   };
 
-  Map<String, String> allSettings() => {
-    for (final e in defaultSettings.entries) e.key: store.meta('settings.${e.key}') ?? e.value,
-  };
+  /// Defaults overlaid with everything set (deviceName, shareAgents,
+  /// schedulerPaused, …).
+  Map<String, String> allSettings() => {...defaultSettings, ...store.metaWithPrefix('settings.')};
 
   // ---------------------------------------------------------------- lookups
 
