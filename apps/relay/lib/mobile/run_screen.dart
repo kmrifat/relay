@@ -5,6 +5,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import '../data/relay_data.dart';
+import '../ui/markdown.dart';
 import 'glass.dart';
 import 'mobile_data.dart';
 import 'mobile_shell.dart' show pendingPermission, PersonDot;
@@ -184,11 +185,11 @@ class _RunScreenState extends ConsumerState<RunScreen> {
         ),
       if (lastMsg != null) ...[
         const SizedBox(height: 12),
-        MCard(child: Text('${lastMsg.data['text']}', style: mt(16, height: 1.35))),
+        MCard(child: Markdown('${lastMsg.data['text']}', style: phoneMd(), selectable: false)),
       ],
       if (run.summary != null && !active && run.summary!.trim() != '${lastMsg?.data['text'] ?? ''}'.trim()) ...[
         const SizedBox(height: 12),
-        MCard(child: Text(run.summary!, style: mt(16, height: 1.35))),
+        MCard(child: Markdown(run.summary!, style: phoneMd(), selectable: false)),
       ],
       if (tools.isEmpty && lastMsg == null && active)
         Center(child: Padding(padding: const EdgeInsets.only(top: 24), child: Text('Waiting for the first step…', style: mt(15, color: MC.text2)))),
@@ -274,7 +275,7 @@ class _ThreadState extends ConsumerState<_Thread> {
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Text('${c.author} · ${shortAgo(c.createdAt)}', style: mt(13, w: FontWeight.w600, color: MC.text2)),
                   const SizedBox(height: 2),
-                  Text(c.body, style: mt(16, height: 1.3)),
+                  Markdown(c.body, style: phoneMd(), mentions: true, selectable: false),
                 ]),
               ),
             ]),

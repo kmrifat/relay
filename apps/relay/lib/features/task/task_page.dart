@@ -8,6 +8,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
+import '../../ui/markdown.dart';
 import '../../ui/widgets.dart';
 import '../../ui/platform.dart';
 import 'diff_dialog.dart';
@@ -339,7 +340,7 @@ class _DetailsState extends ConsumerState<_Details> {
               Text(ago(cm.createdAt), style: context.t(11, color: c.text3)),
             ]),
             const SizedBox(height: 2),
-            SelectableText(cm.body, style: context.t(13, height: 1.4)),
+            Markdown(cm.body, style: context.md(13, height: 1.4), mentions: true, onLink: openWebLink),
           ]),
         ),
       ]),
