@@ -9,7 +9,9 @@ import 'package:path/path.dart' as p;
 /// without any AI account. It reads the workspace, asks permission once,
 /// writes a small notes file per repo it may change, and answers steering.
 ///
-/// It accepts and ignores Claude Code's flags.
+/// It honours the Claude Code flags that change what it may do (like the
+/// real CLI: without `--permission-prompt-tool` nobody is asked and writes
+/// are denied; `--add-dir` makes PROJECT.md readable) and ignores the rest.
 Future<int> runDemoAgent(List<String> args) async {
   final out = stdout;
   void emit(Map<String, Object?> j) => out.writeln(jsonEncode(j));
@@ -17,6 +19,11 @@ Future<int> runDemoAgent(List<String> args) async {
   final queue = StreamIterator(lines);
   final steering = <String>[];
   final bypass = args.contains('bypassPermissions');
+  final hostAsks = args.contains('--permission-prompt-tool');
+  final addDirs = [
+    for (var i = 0; i + 1 < args.length; i++)
+      if (args[i] == '--add-dir') args[i + 1],
+  ];
   final delay = Duration(milliseconds: int.tryParse(Platform.environment['RELAY_DEMO_DELAY_MS'] ?? '') ?? 600);
 
   Future<Map<String, Object?>?> next() async {
@@ -46,6 +53,17 @@ Future<int> runDemoAgent(List<String> args) async {
   emit(_toolResult('t1', entries.join('\n')));
   await Future<void>.delayed(delay);
 
+  // The repo map sits in the workspace around a single repo.
+  for (final dir in addDirs) {
+    final map = File(p.join(dir, 'PROJECT.md'));
+    if (!map.existsSync()) continue;
+    emit(_assistant([
+      {'type': 'tool_use', 'id': 'r1', 'name': 'Read', 'input': {'file_path': map.path}},
+    ]));
+    emit(_toolResult('r1', map.readAsLinesSync().take(3).join('\n')));
+    await Future<void>.delayed(delay);
+  }
+
   // Repos it may change: subfolders that are git worktrees (not links), or cwd itself.
   final targets = <String>[];
   for (final e in Directory(cwd).listSync(followLinks: false)) {
@@ -64,7 +82,9 @@ Future<int> runDemoAgent(List<String> args) async {
       {'type': 'tool_use', 'id': id, 'name': 'Write', 'input': input},
     ]));
     var allowed = true;
-    if (!bypass) {
+    if (!bypass && !hostAsks) {
+      allowed = false;
+    } else if (!bypass) {
       emit({
         'type': 'control_request',
         'request_id': 'perm-$id',
@@ -87,7 +107,7 @@ Future<int> runDemoAgent(List<String> args) async {
           '${DateTime.now().toIso8601String()}.\n\nA real agent would change code here.\n');
       emit(_toolResult(id, 'Wrote $rel'));
     } else {
-      emit(_toolResult(id, 'The user denied this write.', error: true));
+      emit(_toolResult(id, hostAsks ? 'The user denied this write.' : 'Claude requested permissions to use Write, but you haven\'t granted it yet.', error: true));
     }
     await Future<void>.delayed(delay);
     turn++;

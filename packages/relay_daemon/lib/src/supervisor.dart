@@ -251,6 +251,9 @@ class Supervisor {
         model: agent.model,
         environment: {...ctx.env, 'RELAY_RUN': run.id, 'RELAY_TASK': ctx.taskKey(task)},
         mcpConfigPath: mcpPath,
+        // A single-repo task starts in its repo; the workspace around it
+        // holds PROJECT.md and the other repos' snapshots.
+        addDirs: [if (!p.equals(workspaces.folderFor(task), cwd)) workspaces.folderFor(task)],
         argsTemplate: (agent.data['argsTemplate'] as List?)?.cast<String>(),
         resumeSessionId: extraPrompt != null && previous.isNotEmpty ? previous.last.sessionId : null,
         autoApprove: !ctx.boolSetting('askBeforeShell', true),

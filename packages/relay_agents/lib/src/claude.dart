@@ -10,9 +10,16 @@ import 'process_session.dart';
 ///
 /// Prompts and steering messages go in as `{"type":"user",…}` lines.
 /// Permission requests come out as `control_request` / `can_use_tool` and
-/// are answered with a `control_response` (`--permission-prompts host`).
-/// Verified against the CLI's `--help` (2.1.x); live transcripts are
-/// covered by test fixtures because the CLI's JSON shape can change.
+/// are answered with a `control_response`. That takes
+/// `--permission-prompt-tool stdio` as well as `--permission-prompts host`:
+/// without it there is no host to ask, and anything that would prompt is
+/// denied with "permissions not granted" (seen with 2.1.278).
+///
+/// Relay's own MCP tools are allowed up front, and the task workspace is
+/// added with `--add-dir` when the agent starts inside one of its repos, so
+/// PROJECT.md and the read-only snapshots are readable without asking.
+/// Verified against the CLI (2.1.x); live transcripts are covered by test
+/// fixtures because the CLI's JSON shape can change.
 class ClaudeCodeAdapter extends AgentAdapter {
   @override
   String get id => 'claude-code';
@@ -37,8 +44,12 @@ class ClaudeCodeAdapter extends AgentAdapter {
     '--verbose',
     if (spec.model != null) ...['--model', spec.model!],
     if (spec.resumeSessionId != null) ...['--resume', spec.resumeSessionId!],
-    if (spec.mcpConfigPath != null) ...['--mcp-config', spec.mcpConfigPath!],
-    if (spec.autoApprove) ...['--permission-mode', 'bypassPermissions'] else ...['--permission-prompts', 'host'],
+    if (spec.mcpConfigPath != null) ...['--mcp-config', spec.mcpConfigPath!, '--allowedTools', 'mcp__${relayMcpServer}__*'],
+    for (final dir in spec.addDirs) ...['--add-dir', dir],
+    if (spec.autoApprove)
+      ...['--permission-mode', 'bypassPermissions']
+    else
+      ...['--permission-prompts', 'host', '--permission-prompt-tool', 'stdio'],
     ...spec.extraArgs,
   ];
 
