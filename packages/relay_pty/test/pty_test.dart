@@ -46,12 +46,19 @@ void main() {
   }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
 
   test('Windows: input reaches the shell; resize; closing ends it', testOn: 'windows', () async {
-    final pty = await Pty.start('cmd.exe', ['/d', '/q'], helper: helper!, cols: 80, rows: 24);
+    final pty = await Pty.start('cmd.exe', ['/d', '/q'], helper: helper!, cols: 80, rows: 24, environment: {...Platform.environment, 'RELAY_PTY_DEBUG': '1'});
     final buf = StringBuffer();
+    final log = StringBuffer();
     pty.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
+    pty.errors.listen((b) => log.write(utf8.decode(b, allowMalformed: true)));
     pty.resize(120, 40);
     pty.writeString('echo typed-%COMSPEC:~0,1%-ok\r\nexit 5\r\n');
-    expect(await pty.exitCode.timeout(const Duration(seconds: 15)), 5);
+    final code = await pty.exitCode.timeout(const Duration(seconds: 15), onTimeout: () {
+      printOnFailure('--- helper log ---\n$log\n--- terminal output ---\n${buf.toString().replaceAll('\x1b', '<ESC>')}');
+      pty.kill();
+      return -1;
+    });
+    expect(code, 5);
     expect(buf.toString(), contains('typed-'));
   }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
 

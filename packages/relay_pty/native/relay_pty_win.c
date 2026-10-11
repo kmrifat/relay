@@ -40,6 +40,13 @@ static ResizePC resize_pc;
 static ClosePC close_pc;
 
 static HANDLE out_read, in_write, job, proc;
+static int debug; // RELAY_PTY_DEBUG=1: frames and writes on stderr
+
+static void trace(const char *what, DWORD a, DWORD b) {
+  if (!debug) return;
+  fprintf(stderr, "relay-pty: %s %lu %lu (err %lu)\n", what, (unsigned long)a, (unsigned long)b, (unsigned long)GetLastError());
+  fflush(stderr);
+}
 static RelayHPCON pty;
 
 // MSVCRT quoting for one argument of a command line.
@@ -141,6 +148,7 @@ static DWORD WINAPI pump_input(LPVOID unused) {
     BYTE head[5];
     if (!read_full(in, head, 5)) break;
     DWORD len = ((DWORD)head[1] << 24) | ((DWORD)head[2] << 16) | ((DWORD)head[3] << 8) | head[4];
+    trace("frame", head[0], len);
     BYTE *payload = len ? (BYTE *)malloc(len) : NULL;
     if (len && (!payload || !read_full(in, payload, len))) {
       free(payload);
@@ -149,7 +157,10 @@ static DWORD WINAPI pump_input(LPVOID unused) {
     DWORD put;
     switch (head[0]) {
     case 0:
-      if (len) WriteFile(in_write, payload, len, &put, NULL);
+      if (len) {
+        BOOL ok = WriteFile(in_write, payload, len, &put, NULL);
+        trace(ok ? "input written" : "input write failed", len, put);
+      }
       break;
     case 1:
       if (len >= 4) {
@@ -172,6 +183,7 @@ static DWORD WINAPI pump_input(LPVOID unused) {
     }
     free(payload);
   }
+  trace("stdin closed", 0, 0);
   // Stdin closed: the terminal is gone; end everything in it.
   TerminateJobObject(job, 129);
   return 0;
@@ -182,6 +194,7 @@ int wmain(int argc, wchar_t **argv) {
     fwprintf(stderr, L"usage: relay-pty <cols> <rows> <cwd> -- <command> [args...]\n");
     return 2;
   }
+  debug = GetEnvironmentVariableW(L"RELAY_PTY_DEBUG", NULL, 0) > 0;
   COORD size = {(SHORT)_wtoi(argv[1]), (SHORT)_wtoi(argv[2])};
   if (size.X <= 0) size.X = 100;
   if (size.Y <= 0) size.Y = 30;
