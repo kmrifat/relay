@@ -1,0 +1,12 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - "**/build/**"
+    - "**/*.g.dart"
+
+linter:
+  rules:
+    - prefer_single_quotes
+    - always_declare_return_types
+    - unawaited_futures

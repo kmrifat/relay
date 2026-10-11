@@ -1,0 +1,18 @@
+name: relay_workspace
+description: "Relay: local-first task manager for people and coding agents. Workspace root (see docs/PLAN.md)."
+publish_to: none
+
+environment:
+  sdk: ^3.13.4
+
+workspace:
+  - apps/relay
+  - packages/relay_core
+  - packages/relay_protocol
+  - packages/relay_agents
+  - packages/relay_git
+  - packages/relay_pty
+  - packages/relay_daemon
+
+dev_dependencies:
+  lints: ^6.0.0

@@ -1,0 +1,23 @@
+name: relay_daemon
+description: "relay: the headless daemon (relayd), MCP server and CLI in one binary. Pure Dart."
+publish_to: none
+version: 0.1.0
+resolution: workspace
+
+environment:
+  sdk: ^3.13.4
+
+executables:
+  relay: relay
+
+dependencies:
+  path: ^1.9.0
+  relay_agents: ^0.1.0
+  relay_core: ^0.1.0
+  relay_git: ^0.1.0
+  relay_protocol: ^0.1.0
+  relay_pty: ^0.1.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6
