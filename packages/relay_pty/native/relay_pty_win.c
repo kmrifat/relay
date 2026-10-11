@@ -40,6 +40,9 @@ static ResizePC resize_pc;
 static ClosePC close_pc;
 
 static HANDLE out_read, in_write, job, proc;
+// Set once the console has drawn something: input sent while ConPTY is
+// still starting up is lost, so the first keystrokes wait for this.
+static HANDLE console_ready;
 static int debug; // RELAY_PTY_DEBUG=1: frames and writes on stderr
 
 static void trace(const char *what, DWORD a, DWORD b) {
@@ -136,6 +139,7 @@ static DWORD WINAPI pump_output(LPVOID unused) {
   // out_read is our own anonymous pipe (synchronous); stdout is the parent's.
   while (ReadFile(out_read, buf, sizeof buf, &got, NULL)) {
     if (got == 0) continue;
+    SetEvent(console_ready);
     if (!write_all(out, buf, got)) break;
   }
   return 0;
@@ -158,6 +162,8 @@ static DWORD WINAPI pump_input(LPVOID unused) {
     switch (head[0]) {
     case 0:
       if (len) {
+        // At most 2 s: a silent program still gets its input.
+        WaitForSingleObject(console_ready, 2000);
         BOOL ok = WriteFile(in_write, payload, len, &put, NULL);
         trace(ok ? "input written" : "input write failed", len, put);
       }
@@ -260,6 +266,7 @@ int wmain(int argc, wchar_t **argv) {
   CloseHandle(pi.hThread);
   proc = pi.hProcess;
 
+  console_ready = CreateEventW(NULL, TRUE, FALSE, NULL);
   HANDLE reader = CreateThread(NULL, 0, pump_output, NULL, 0, NULL);
   CreateThread(NULL, 0, pump_input, NULL, 0, NULL);
 

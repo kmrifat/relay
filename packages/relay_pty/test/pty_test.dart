@@ -51,6 +51,10 @@ void main() {
     final log = StringBuffer();
     pty.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
     pty.errors.listen((b) => log.write(utf8.decode(b, allowMalformed: true)));
+    // Type once the prompt is up, as a person does.
+    for (var i = 0; i < 100 && !buf.toString().contains('>'); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
     pty.resize(120, 40);
     pty.writeString('echo typed-%COMSPEC:~0,1%-ok\r\nexit 5\r\n');
     final code = await pty.exitCode.timeout(const Duration(seconds: 15), onTimeout: () {
