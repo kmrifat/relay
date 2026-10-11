@@ -21,7 +21,9 @@ relay — Relay's daemon, MCP server and command line
   relay team status | invite | join CODE | sync | leave
   relay team push-setup --p8 AuthKey_X.p8 --key-id ID --apple-team ID [--bundle ID]
                                phone push through the team Worker (your APNs key)
-  relay mcp --run RUN_ID       MCP server for an agent (stdio)
+  relay mcp                    MCP server for your own agent (stdio): projects, tasks,
+                               create a task. Add it with: claude mcp add relay -- relay mcp
+  relay mcp --run RUN_ID       MCP server for an agent Relay started (stdio)
   relay demo-agent             the built-in demo agent (stream-json)
   relay version
 ''';
@@ -45,7 +47,7 @@ Future<void> main(List<String> args) async {
         }
         await _daemon(paths);
       case 'mcp':
-        exitCode = await runMcpServer(_opt(rest, '--run') ?? Platform.environment['RELAY_RUN'] ?? '', paths);
+        exitCode = await runMcpServer(_opt(rest, '--run') ?? Platform.environment['RELAY_RUN'], paths);
       case 'demo-agent':
         exitCode = await runDemoAgent(rest);
       case 'version':

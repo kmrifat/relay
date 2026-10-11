@@ -92,3 +92,11 @@ An MCP server over stdio that agents get through `--mcp-config`. Tools:
 - `relay_message_agent`: message another agent on the task.
 - `relay_check`: tick a "done when" item.
 - `relay_create_task`: add a follow-up task.
+
+## `relay mcp`
+
+Without `--run` (and no `RELAY_RUN`), the same server is for a person's own agent session, across projects. Add it to Claude Code with `claude mcp add relay -- <path to relay> mcp` (on macOS: `/Applications/Relay.app/Contents/Helpers/relay`). Tools:
+- `relay_projects`: project keys and repos, and the agents that can take tasks.
+- `relay_tasks {project?, status?}`: a project's tasks with their keys.
+- `relay_create_task {title, project?, brief?, doneWhen?, repos?, agent?, queue?}`: a task in Backlog, or queued with `queue: true`. Without `repos`, Relay suggests them from the title and brief, as the new-task sheet does.
+- `relay_task_status {task}`: status, latest run, open question, checklist and discussion of a task such as `GA-3`.

@@ -341,4 +341,71 @@ void main() {
     await proc.stdin.close();
     proc.kill();
   });
+
+  test('MCP server without a run: a person\'s agent lists projects, creates a task, checks on it', () async {
+    final proc = await Process.start(relayBin, ['mcp'], environment: {'RELAY_HOME': home});
+    final lines = proc.stdout.transform(utf8.decoder).transform(const LineSplitter()).asBroadcastStream();
+    var id = 0;
+    Future<Map> call(String method, Map params) async {
+      final n = ++id;
+      proc.stdin.writeln(jsonEncode({'jsonrpc': '2.0', 'id': n, 'method': method, 'params': params}));
+      final line = await lines.firstWhere((l) => (jsonDecode(l) as Map)['id'] == n).timeout(const Duration(seconds: 15));
+      return (jsonDecode(line) as Map)['result'] as Map;
+    }
+
+    Future<(String, bool)> tool(String name, Map<String, Object?> args) async {
+      final r = await call('tools/call', {'name': name, 'arguments': args});
+      return ((r['content'] as List).first['text'] as String, r['isError'] == true);
+    }
+
+    await call('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'claude-code'}});
+    final names = ((await call('tools/list', {}))['tools'] as List).map((t) => t['name']).toList();
+    expect(names, containsAll(['relay_projects', 'relay_tasks', 'relay_create_task', 'relay_task_status']));
+    expect(names, isNot(contains('relay_progress'))); // that one needs a run
+
+    final (projects, _) = await tool('relay_projects', {});
+    expect(projects, contains('KT · Kitchenly'));
+    expect(projects, contains('api (Laravel)'));
+    expect(projects, contains('demo'));
+
+    final (created, err) = await tool('relay_create_task', {
+      'project': 'kt',
+      'title': 'Rate limit the share endpoint',
+      'brief': 'Ten links a minute per user.',
+      'doneWhen': ['429 after ten requests'],
+      'repos': ['api'],
+      'agent': 'demo',
+    });
+    expect(err, isFalse, reason: created);
+    final key = RegExp(r'KT-\d+').firstMatch(created)![0]!;
+    expect(created, allOf(contains('in Backlog'), contains('for demo'), contains('changing api')));
+    final t = (await client.list(M.tasksList)).firstWhere((t) => t['title'] == 'Rate limit the share endpoint');
+    expect(t['status'], 'backlog');
+    expect(t['assignee'], 'demo');
+    expect((t['doneWhen'] as List).single['text'], '429 after ten requests');
+
+    // No repos given: Relay suggests them, like the new-task sheet.
+    final (suggested, _) = await tool('relay_create_task', {
+      'project': 'KT',
+      'title': 'Share sheet',
+      'brief': 'Add a share button on the recipe screen that calls a new share-link endpoint',
+    });
+    expect(suggested, allOf(contains('app'), contains('api')));
+
+    final (bad, isErr) = await tool('relay_create_task', {'project': 'KT', 'title': 'x', 'repos': 'nope'});
+    expect(isErr, isTrue);
+    expect(bad, allOf(contains('No repo nope'), contains('shared')));
+
+    final (list, _) = await tool('relay_tasks', {'project': 'KT', 'status': 'backlog'});
+    expect(list, contains('$key  backlog  Rate limit the share endpoint'));
+    final (status, _) = await tool('relay_task_status', {'task': key});
+    expect(status, allOf(contains('status: backlog'), contains('assigned to demo'), contains('[ ] 429 after ten requests')));
+
+    await proc.stdin.close();
+    proc.kill();
+    for (final title in ['Rate limit the share endpoint', 'Share sheet']) {
+      final t = (await client.list(M.tasksList)).firstWhere((t) => t['title'] == title);
+      await client.call(M.tasksDelete, {'id': t['id']});
+    }
+  });
 }
