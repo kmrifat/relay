@@ -1,8 +1,12 @@
-/// Support for doing something awesome.
-///
-/// More dartdocs go here.
+/// relay: the headless daemon (relayd), its MCP server and CLI.
 library;
 
-export 'src/relay_daemon_base.dart';
-
-// TODO: Export any libraries intended for clients of this package.
+export 'src/api.dart';
+export 'src/context.dart';
+export 'src/demo_agent.dart';
+export 'src/mcp.dart';
+export 'src/repo_inspect.dart';
+export 'src/server.dart';
+export 'src/supervisor.dart';
+export 'src/terminals.dart';
+export 'src/workspaces.dart';

@@ -35,8 +35,8 @@ typedef NotificationHandler = void Function(Map<String, Object?> params);
 /// class serves the UI, relayd, `relay mcp` and tests.
 class RpcPeer {
   RpcPeer(Stream<List<int>> input, this._output, {this.name = 'peer'}) {
-    _sub = input
-        .transform(utf8.decoder)
+    _sub = utf8.decoder
+        .bind(input)
         .transform(const LineSplitter())
         .listen(_onLine, onDone: _onDone, onError: (_) => _onDone());
   }

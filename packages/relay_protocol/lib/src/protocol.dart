@@ -33,6 +33,7 @@ abstract final class M {
   static const commentsPost = 'comments.post';
 
   static const runsList = 'runs.list';
+  static const runsGet = 'runs.get';
   static const runsEvents = 'runs.events';
   static const runsStart = 'runs.start';
   static const runsSteer = 'runs.steer';
@@ -45,6 +46,7 @@ abstract final class M {
   static const agentsList = 'agents.list';
   static const agentsDetect = 'agents.detect';
   static const agentsUpdate = 'agents.update';
+  static const agentsMessage = 'agents.message';
   static const rulesList = 'rules.list';
   static const rulesSave = 'rules.save';
   static const rulesDelete = 'rules.delete';
