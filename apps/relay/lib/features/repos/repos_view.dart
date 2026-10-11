@@ -7,6 +7,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 import 'repo_dialog.dart';
 
 /// Project repositories (design T11): map, table, how agents see them.
@@ -55,7 +56,7 @@ class ReposView extends ConsumerWidget {
                   Expanded(flex: 5, child: Text('Repository', style: context.label)),
                   Expanded(flex: 3, child: Text('Role', style: context.label)),
                   Expanded(flex: 2, child: Text('Base', style: context.label)),
-                  Expanded(flex: 4, child: Text('On this Mac', style: context.label)),
+                  Expanded(flex: 4, child: Text('On ${Desk.thisComputer}', style: context.label)),
                   Expanded(flex: 1, child: Text('Tasks', style: context.label)),
                   Expanded(flex: 2, child: Text('Agents', style: context.label)),
                   const SizedBox(width: 24),
@@ -172,12 +173,12 @@ class _RepoRow extends ConsumerWidget {
               ? Row(children: [
                   Icon(LucideIcons.check, size: 12, color: c.success),
                   const SizedBox(width: 6),
-                  Expanded(child: Text(path.replaceFirst(RegExp(r'^/Users/[^/]+'), '~'), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, family: mono, color: c.text2))),
+                  Expanded(child: Text(Desk.tilde(path), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, family: mono, color: c.text2))),
                 ])
               : Row(children: [
                   Btn('Clone', small: true, icon: LucideIcons.download, onTap: repo.remoteUrl == null ? null : () => ref.read(clientProvider).call(M.reposClone, {'id': repo.id})),
                   const SizedBox(width: 6),
-                  Text('not on this Mac', style: context.t(11, color: c.text3)),
+                  Text('not on ${Desk.thisComputer}', style: context.t(11, color: c.text3)),
                 ]),
         ),
         Expanded(flex: 1, child: Text('$openTasks', style: context.t(12))),

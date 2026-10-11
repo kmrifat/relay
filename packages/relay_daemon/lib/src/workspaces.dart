@@ -50,7 +50,7 @@ class Workspaces {
       final target = p.join(folder, _dirName(repo));
       if (touched.any((r) => r.id == repo.id)) {
         if (source == null || !await ctx.git.isRepo(source)) {
-          throw RpcError(RpcError.invalidParams, '${repo.name} is not cloned on this Mac.');
+          throw RpcError(RpcError.invalidParams, '${repo.name} is not cloned on this computer.');
         }
         // A read-only snapshot from before the task touched this repo.
         if (Directory(target).existsSync() && await ctx.git.currentBranch(target) == null) {
@@ -61,7 +61,8 @@ class Workspaces {
       } else if (source != null && await ctx.git.isRepo(source) && !Directory(target).existsSync()) {
         try {
           await ctx.git.worktreeAddDetached(source, target, repo.baseBranch);
-          await Process.run('chmod', ['-R', 'a-w', target]);
+          File(p.join(target, snapshotMarker)).writeAsStringSync('Read-only snapshot: this task does not change ${repo.name}.\n');
+          await setReadOnly(target, true);
         } catch (e) {
           ctx.notice('Could not make a read-only copy of ${repo.name}: $e', level: 'warning');
         }
@@ -71,8 +72,23 @@ class Workspaces {
     return touched.length == 1 ? p.join(folder, _dirName(touched.first)) : folder;
   }
 
+  /// Marks a read-only snapshot (agents and the demo agent check for it).
+  static const snapshotMarker = '.relay-snapshot';
+
+  /// Makes [dir] read-only, or writable again. macOS/Linux take away write
+  /// permission; Windows sets the read-only attribute, which protects files
+  /// but not folders (new files can still be created there).
+  static Future<void> setReadOnly(String dir, bool readOnly) async {
+    if (!Directory(dir).existsSync()) return;
+    if (Platform.isWindows) {
+      await Process.run('attrib', [readOnly ? '+R' : '-R', p.join(dir, '*'), '/S', '/D']);
+    } else {
+      await Process.run('chmod', ['-R', readOnly ? 'a-w' : 'u+w', dir]);
+    }
+  }
+
   Future<void> _removeSnapshot(String source, String target) async {
-    await Process.run('chmod', ['-R', 'u+w', target]);
+    await setReadOnly(target, false);
     await ctx.git.worktreeRemove(source, target, force: true);
     if (Directory(target).existsSync()) Directory(target).deleteSync(recursive: true);
   }
@@ -337,7 +353,7 @@ class Workspaces {
   /// Removes the task's worktrees and folder (after merge or on request).
   Future<void> cleanup(Task task) async {
     final folder = folderFor(task);
-    if (Directory(folder).existsSync()) await Process.run('chmod', ['-R', 'u+w', folder]);
+    await setReadOnly(folder, false);
     for (final repo in ctx.reposOf(task.projectId)) {
       final source = repo.pathOn(ctx.deviceId);
       if (source != null) await ctx.git.worktreeRemove(source, p.join(folder, _dirName(repo)), force: true);

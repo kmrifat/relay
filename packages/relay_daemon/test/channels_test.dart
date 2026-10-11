@@ -18,7 +18,7 @@ void main() {
 
   setUpAll(() async {
     tmp = Directory.systemTemp.createTempSync('relay_ch_');
-    final bin = p.join(tmp.path, 'relay');
+    final bin = p.join(tmp.path, Platform.isWindows ? 'relay.exe' : 'relay');
     final r = await Process.run('dart', ['compile', 'exe', 'bin/relay.dart', '-o', bin]);
     expect(r.exitCode, 0, reason: '${r.stderr}');
     daemon = RelayDaemon(RelayPaths(p.join(tmp.path, 'home')), relayBinary: bin, detectOnStart: false, resolveShellEnv: false);

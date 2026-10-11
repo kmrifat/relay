@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'adapter.dart';
+import 'launch.dart';
 import 'process_session.dart';
 
 /// OpenAI Codex CLI in non-interactive mode with JSON Lines output:
@@ -41,7 +41,7 @@ class CodexAdapter extends AgentAdapter {
 
   @override
   Future<AgentSession> start(RunSpec spec) async {
-    final process = await Process.start(
+    final process = await Launch.start(
       spec.binary ?? 'codex',
       argsFor(spec),
       workingDirectory: spec.cwd,

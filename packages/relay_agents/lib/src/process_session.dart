@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'adapter.dart';
+import 'launch.dart';
 
 /// Shared plumbing for agents that run as a child process and print one
 /// event per line: start, line splitting, stderr capture, pause/stop.
@@ -79,10 +80,14 @@ abstract class ProcessSession implements AgentSession {
   }
 
   @override
-  void pause() => Process.killPid(process.pid, ProcessSignal.sigstop);
+  bool get canPause => !Platform.isWindows;
+
+  /// Freezes the agent and everything it started (tools, `relay mcp`).
+  @override
+  void pause() => unawaited(ProcessTree.signal(process.pid, ProcessSignal.sigstop));
 
   @override
-  void resume() => Process.killPid(process.pid, ProcessSignal.sigcont);
+  void resume() => unawaited(ProcessTree.signal(process.pid, ProcessSignal.sigcont));
 
   @override
   void finish() {
@@ -94,13 +99,7 @@ abstract class ProcessSession implements AgentSession {
   @override
   Future<void> stop() async {
     stopping = true;
-    Process.killPid(process.pid, ProcessSignal.sigcont);
-    process.kill(ProcessSignal.sigterm);
-    try {
-      await process.exitCode.timeout(const Duration(seconds: 5));
-    } on TimeoutException {
-      process.kill(ProcessSignal.sigkill);
-    }
+    await ProcessTree.kill(process);
   }
 
   Future<void> dispose() async {

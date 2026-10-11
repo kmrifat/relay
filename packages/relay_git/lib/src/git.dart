@@ -124,7 +124,10 @@ class Git {
     return out.trim() == 'true';
   }
 
-  Future<String> topLevel(String dir) async => (await run(dir, ['rev-parse', '--show-toplevel'])).trim();
+  Future<String> topLevel(String dir) async => nativePath((await run(dir, ['rev-parse', '--show-toplevel'])).trim());
+
+  /// git prints `C:/Users/…` on Windows; Relay keeps native paths.
+  static String nativePath(String path) => Platform.isWindows ? p.normalize(path) : path;
 
   Future<String?> currentBranch(String dir) async {
     final out = (await run(dir, ['branch', '--show-current'], allowFail: true)).trim();
@@ -190,7 +193,7 @@ class Git {
     String? path, head, branch;
     for (final line in out.split('\n')) {
       if (line.startsWith('worktree ')) {
-        path = line.substring(9);
+        path = nativePath(line.substring(9));
       } else if (line.startsWith('HEAD ')) {
         head = line.substring(5);
       } else if (line.startsWith('branch ')) {

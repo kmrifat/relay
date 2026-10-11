@@ -2,7 +2,7 @@
 // and prints its URL. Used by relay_sync's Worker tests.
 //   node test/serve.mjs [setup-token]
 import { Miniflare } from 'miniflare';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 export function start(setupToken = 'setup-secret', port = 0, extra = {}) {
   return new Miniflare({
@@ -16,7 +16,8 @@ export function start(setupToken = 'setup-secret', port = 0, extra = {}) {
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Run directly (not imported)? Compared as URLs, so Windows paths work too.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const mf = start(process.argv[2], Number(process.argv[3] ?? 0));
   const url = await mf.ready;
   console.log(url.href.replace(/\/$/, ''));

@@ -9,6 +9,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 
 /// First run on the Mac (M9-01): your name, the agent CLIs found on this
 /// Mac, a repo, a first task, and the team (optional). Each step can be
@@ -70,7 +71,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     try {
       final info = await client.map(M.reposInspect, {'path': path});
       if (info['isRepo'] != true) throw RpcError(RpcError.invalidParams, 'That folder is not a git repository.');
-      final folder = path.split('/').where((s) => s.isNotEmpty).last;
+      final folder = Desk.base(path);
       final words = folder.split(RegExp(r'[-_\s]+')).where((w) => w.isNotEmpty).toList();
       var key = (words.length > 1 ? words.map((w) => w[0]).join() : folder.substring(0, folder.length < 2 ? folder.length : 2)).toUpperCase().replaceAll(RegExp('[^A-Z0-9]'), '');
       if (key.isEmpty) key = 'P';
@@ -177,8 +178,8 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
     switch (step) {
       case 0:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          lead('Your agents, on your Mac',
-              'Relay runs the coding agents you already pay for (Claude Code, Codex, Gemini, OpenCode, Aider) side by side, on one board with you and your team. Logins and keys never leave this Mac.'),
+          lead('Your agents, on your ${Desk.computer}',
+              'Relay runs the coding agents you already pay for (Claude Code, Codex, Gemini, OpenCode, Aider) side by side, on one board with you and your team. Logins and keys never leave ${Desk.thisComputer}.'),
           FieldRow('Your name', FieldInput(controller: name, hint: 'Shown on comments, merges and to teammates', autofocus: true), labelWidth: 90),
           const SizedBox(height: 16),
           actions([
@@ -193,7 +194,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
         final found = agents.where((a) => a['binaryPath'] != null).toList();
         final missing = agents.where((a) => a['binaryPath'] == null).toList();
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          lead('Agents on this Mac', 'Relay looked on your login shell\'s PATH. Install more any time; Agents → Detect finds them.'),
+          lead('Agents on ${Desk.thisComputer}', 'Relay looked on your login shell\'s PATH. Install more any time; Agents → Detect finds them.'),
           if (detecting) Text('Looking…', style: context.t(12, color: c.text2)),
           for (final a in found)
             Padding(
@@ -253,7 +254,7 @@ class _OnboardingPageState extends ConsumerState<OnboardingPage> {
       default:
         return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           lead('Working with others, or from your iPhone?',
-              'Team sync goes through your own Cloudflare account — no Relay server, everything encrypted on this Mac. Your iPhone pairs through the same team.'),
+              'Team sync goes through your own Cloudflare account — no Relay server, everything encrypted on ${Desk.thisComputer}. Your iPhone pairs through the same team.'),
           actions([
             Btn('Not now', onTap: _finish),
             Btn('Set up a team', kind: BtnKind.primary, icon: LucideIcons.users, onTap: () => _finish(team: true)),

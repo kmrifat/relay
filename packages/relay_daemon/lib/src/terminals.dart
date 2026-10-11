@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:relay_agents/relay_agents.dart' show Launch;
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 import 'package:relay_pty/relay_pty.dart';
@@ -20,16 +21,28 @@ class Terminals {
   final _meta = <String, Map<String, Object?>>{};
   Timer? _flush;
 
+  /// The person's shell: `$SHELL -l` on macOS/Linux; on Windows PowerShell 7
+  /// if installed, else Windows PowerShell, else cmd.exe.
+  static (String, List<String>) defaultShell(Map<String, String> env) {
+    if (!Platform.isWindows) return (env['SHELL'] ?? (Platform.isMacOS ? '/bin/zsh' : '/bin/bash'), const ['-l']);
+    final path = Launch.pathOf(env);
+    final pwsh = Launch.which('pwsh', path, environment: env);
+    if (pwsh != null) return (pwsh, const ['-NoLogo']);
+    final ps = Launch.which('powershell', path, environment: env);
+    if (ps != null) return (ps, const ['-NoLogo']);
+    return (env['ComSpec'] ?? r'C:\Windows\System32\cmd.exe', const []);
+  }
+
   List<Map<String, Object?>> list() => [for (final e in _meta.entries) {'id': e.key, ...e.value}];
 
   Future<String> open({required String cwd, int cols = 100, int rows = 30, String? command, List<String> args = const [], String? runId}) async {
     final helper = ctx.ptyHelper ?? Pty.findHelper();
     if (helper == null) throw RpcError(RpcError.internal, 'relay-pty helper not found');
     if (!Directory(cwd).existsSync()) throw RpcError(RpcError.invalidParams, 'No folder $cwd');
-    final shell = command ?? ctx.env['SHELL'] ?? '/bin/zsh';
+    final (shell, shellArgs) = command != null ? (command, args) : defaultShell(ctx.env);
     final pty = await Pty.start(
       shell,
-      command == null ? ['-l'] : args,
+      shellArgs,
       helper: helper,
       cwd: cwd,
       cols: cols,

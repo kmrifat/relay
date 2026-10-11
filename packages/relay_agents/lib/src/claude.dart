@@ -1,7 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'adapter.dart';
+import 'launch.dart';
 import 'process_session.dart';
 
 /// Claude Code, driven in print mode with streaming JSON in and out.
@@ -44,7 +44,7 @@ class ClaudeCodeAdapter extends AgentAdapter {
 
   @override
   Future<AgentSession> start(RunSpec spec) async {
-    final process = await Process.start(
+    final process = await Launch.start(
       spec.binary ?? 'claude',
       argsFor(spec),
       workingDirectory: spec.cwd,

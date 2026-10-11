@@ -1,6 +1,6 @@
-import 'dart:io';
 
 import 'adapter.dart';
+import 'launch.dart';
 import 'process_session.dart';
 
 /// Agents without a machine-readable mode (or whose mode isn't wired up yet):
@@ -44,7 +44,7 @@ class GenericAdapter extends AgentAdapter {
 
   @override
   Future<AgentSession> start(RunSpec spec) async {
-    final process = await Process.start(
+    final process = await Launch.start(
       spec.binary ?? binaries.first,
       fill(spec.argsTemplate ?? defaultArgs, spec),
       workingDirectory: spec.cwd,

@@ -49,7 +49,7 @@ void main() {
     expect(resp['request_id'], 'req_1');
     expect((resp['response'] as Map)['behavior'], 'allow');
     expect(((resp['response'] as Map)['updatedInput'] as Map)['command'], contains('wrangler'));
-  });
+  }, testOn: '!windows'); // fixtures are sh scripts; Windows launching is in launch_test
 
   test('Claude Code: deny sends a deny message', () async {
     final log = File('${Directory.systemTemp.createTempSync('fake_claude_').path}/stdin.log');
@@ -64,7 +64,7 @@ void main() {
     }
     final resp = log.readAsLinesSync().map((l) => jsonDecode(l) as Map).firstWhere((l) => l['type'] == 'control_response');
     expect(((resp['response'] as Map)['response'] as Map)['behavior'], 'deny');
-  });
+  }, testOn: '!windows'); // fixtures are sh scripts; Windows launching is in launch_test
 
   test('Claude Code args', () {
     final args = ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', model: 'opus', resumeSessionId: 's1'));
@@ -84,7 +84,7 @@ void main() {
     expect(events.firstWhere((e) => e.type == 'tool_use').data['summary'], 'flutter test test/board');
     expect(events.firstWhere((e) => e.type == 'usage').data['tokensIn'], 1000);
     expect(events.last.data['status'], 'turn_done');
-  });
+  }, testOn: '!windows'); // fixtures are sh scripts; Windows launching is in launch_test
 
   test('Generic: output lines and final message', () async {
     final a = GenericAdapter(id: 'echo', name: 'Echo', binaries: const ['sh'], defaultArgs: const ['-c', 'echo working; echo "{prompt} done"'], color: '#000', letter: 'E');
@@ -92,7 +92,7 @@ void main() {
     final events = await session.events.toList();
     expect(events.where((e) => e.type == 'output').map((e) => e.data['text']), ['working', 'task done']);
     expect(events.last.data['status'], 'turn_done');
-  });
+  }, testOn: '!windows'); // fake CLIs are sh scripts
 
   test('Generic: failure with a limit message sets limitedUntil', () async {
     final a = GenericAdapter(id: 'x', name: 'X', binaries: const ['sh'], defaultArgs: const ['-c', 'echo "Usage limit reached, try again in 2 hours" >&2; exit 1'], color: '#000', letter: 'X');
@@ -100,7 +100,7 @@ void main() {
     final last = (await session.events.toList()).last;
     expect(last.data['status'], 'failed');
     expect(last.data['limitedUntil'], isNotNull);
-  });
+  }, testOn: '!windows'); // fake CLIs are sh scripts
 
   test('summarizeTool and parseLimitReset', () {
     expect(summarizeTool('Bash', {'command': 'flutter   test\n  sync/'}), 'flutter test sync/');
@@ -118,5 +118,5 @@ void main() {
     final found = await AgentRegistry().detect(env: {'PATH': dir.path});
     expect(found.single.adapter, 'claude-code');
     expect(found.single.version, '9.9.9 (Claude Code)');
-  });
+  }, testOn: '!windows'); // fake CLIs are sh scripts
 }

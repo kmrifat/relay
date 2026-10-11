@@ -31,7 +31,7 @@ void main() {
   setUpAll(() async {
     if (!ready) return;
     tmp = Directory.systemTemp.createTempSync('relay_mobile_');
-    final bin = p.join(tmp.path, 'relay');
+    final bin = p.join(tmp.path, Platform.isWindows ? 'relay.exe' : 'relay');
     final r = await Process.run('dart', ['compile', 'exe', 'bin/relay.dart', '-o', bin]);
     expect(r.exitCode, 0, reason: '${r.stderr}');
     // A fake APNs that records what the Worker sends.

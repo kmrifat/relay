@@ -8,8 +8,8 @@ import '../../app/theme.dart';
 import '../../data/system.dart';
 import '../../ui/widgets.dart';
 
-/// Settings → This Mac (M9-02/03): relayd at login, the menu bar item,
-/// updates. Only on macOS.
+/// Settings → This Mac / This computer (M9-02/03, M10-05): relayd at login
+/// everywhere; the menu bar item and Sparkle updates on macOS.
 class MacSection extends ConsumerStatefulWidget {
   const MacSection({super.key});
   @override
@@ -40,7 +40,8 @@ class _MacSectionState extends ConsumerState<MacSection> {
 
   @override
   Widget build(BuildContext context) {
-    if (!Platform.isMacOS) return const SizedBox.shrink();
+    if (!Platform.isMacOS && !Platform.isWindows && !Platform.isLinux) return const SizedBox.shrink();
+    final mac = Platform.isMacOS;
     final c = context.c;
     Widget toggle(String label, String help, bool value, ValueChanged<bool>? onChanged) => Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -51,14 +52,16 @@ class _MacSectionState extends ConsumerState<MacSection> {
       ]),
     );
     final loginHelp = switch (login) {
-      'enabled' => 'relayd starts when you log in, so queued and overnight work runs without opening Relay.',
+      'enabled' => Platform.isWindows
+          ? 'relayd starts when you sign in (Startup apps), so queued and overnight work runs without opening Relay.'
+          : 'relayd starts when you log in, so queued and overnight work runs without opening Relay.',
       'needsApproval' => 'Allow "Relay" in System Settings → General → Login Items.',
       'unsupported' => 'Needs macOS 13 or later.',
-      'notFound' => 'This build has no login agent (run a full macOS build).',
+      'notFound' => Platform.isMacOS ? 'This build has no login agent (run a full macOS build).' : 'This build has no relayd next to it (helpers/).',
       _ => 'Start relayd when you log in, so queued and overnight work runs.',
     };
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('This Mac', style: context.label),
+      Text(mac ? 'This Mac' : 'This computer', style: context.label),
       const SizedBox(height: 8),
       Box(
         child: Column(children: [
@@ -75,6 +78,7 @@ class _MacSectionState extends ConsumerState<MacSection> {
                     setState(() => error = '$e');
                   }
                 }),
+          if (mac) ...[
           const Hairline(),
           toggle('Menu bar', 'Keep Relay in the menu bar when its window is closed: what runs, what waits on you, pause new work.', menuBar, (v) {
             setState(() => menuBar = v);
@@ -87,6 +91,7 @@ class _MacSectionState extends ConsumerState<MacSection> {
             ),
             Btn('Check for Updates…', small: true, onTap: canUpdate ? () => SystemBridge.instance.checkForUpdates() : null),
           ]), labelWidth: 110),
+          ],
         ]),
       ),
       if (error != null) Padding(padding: const EdgeInsets.only(top: 6), child: Text(error!, style: context.t(11, color: c.danger))),

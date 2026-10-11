@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -44,7 +46,9 @@ class Sidebar extends ConsumerWidget {
 
     return Container(
       color: c.sidebar,
-      padding: const EdgeInsets.fromLTRB(10, 34, 10, 10),
+      // macOS draws the traffic lights over the sidebar; elsewhere the
+      // window has its own title bar.
+      padding: EdgeInsets.fromLTRB(10, Platform.isMacOS ? 34 : 12, 10, 10),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 6),

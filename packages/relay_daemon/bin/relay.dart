@@ -7,7 +7,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 const _usage = '''
 relay — Relay's daemon, MCP server and command line
 
-  relay daemon                 run relayd in the foreground
+  relay daemon [--detach]      run relayd (in the foreground, or detached)
   relay status                 show relayd's status
   relay project add NAME --key KEY [--repo PATH]...
   relay projects               list projects
@@ -37,6 +37,12 @@ Future<void> main(List<String> args) async {
   try {
     switch (cmd) {
       case 'daemon':
+        if (rest.contains('--detach')) {
+          // Started at login (Windows Run entry): relaunch without a
+          // console window and get out of the way.
+          await Process.start(Platform.resolvedExecutable, ['daemon'], mode: ProcessStartMode.detached);
+          return;
+        }
         await _daemon(paths);
       case 'mcp':
         exitCode = await runMcpServer(_opt(rest, '--run') ?? Platform.environment['RELAY_RUN'] ?? '', paths);

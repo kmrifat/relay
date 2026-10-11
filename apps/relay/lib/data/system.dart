@@ -2,6 +2,9 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import 'daemon_launcher.dart';
+import 'login_item.dart';
+
 /// The Mac app's native side (macos/Runner): the menu bar item, relayd at
 /// login, and Sparkle updates. A no-op elsewhere.
 class SystemBridge {
@@ -15,6 +18,9 @@ class SystemBridge {
   void Function(String action, Map<String, Object?> args)? onMenu;
 
   bool get _mac => Platform.isMacOS;
+
+  /// Widget tests (`flutter test` sets FLUTTER_TEST) never touch the system.
+  static bool get _testing => Platform.environment['FLUTTER_TEST'] == 'true';
   String _last = '';
 
   void init() {
@@ -51,9 +57,22 @@ class SystemBridge {
 
   Future<void> keepInMenuBar(bool on) => _call<void>(_system, 'keepInMenuBar', {'on': on});
 
-  /// enabled, off, needsApproval, notFound or unsupported; null off the Mac.
-  Future<String?> loginItem() => _call<String>(_system, 'loginItem');
-  Future<String?> setLoginItem(bool on) => _call<String>(_system, 'setLoginItem', {'on': on});
+  /// enabled, off, needsApproval, notFound or unsupported.
+  Future<String?> loginItem() async {
+    if (_testing) return 'off';
+    if (Platform.isWindows || Platform.isLinux) return DesktopLoginItem.status();
+    return _call<String>(_system, 'loginItem');
+  }
+
+  Future<String?> setLoginItem(bool on) async {
+    if (_testing) return on ? 'enabled' : 'off';
+    if (Platform.isWindows || Platform.isLinux) {
+      final bin = DaemonLauncher().relayBinary;
+      if (bin == null) return 'notFound';
+      return DesktopLoginItem.set(on, relayBinary: bin);
+    }
+    return _call<String>(_system, 'setLoginItem', {'on': on});
+  }
 
   Future<bool> canUpdate() async => await _call<bool>(_updater, 'isAvailable') ?? false;
   Future<void> checkForUpdates() => _call<void>(_updater, 'check');

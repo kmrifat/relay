@@ -135,21 +135,31 @@ abstract final class E {
 
 /// Where relayd keeps its socket, database and state.
 class RelayPaths {
-  RelayPaths(this.home);
+  RelayPaths(this.home, {this.runtimeDir});
+
+  /// Linux's per-user `XDG_RUNTIME_DIR`, a private place for the socket
+  /// when the home path is too long for one.
 
   /// `$RELAY_HOME`, or the platform's per-user app data folder.
   factory RelayPaths.resolve([Map<String, String>? env]) {
     final e = env ?? Platform.environment;
     final override = e['RELAY_HOME'];
     if (override != null && override.isNotEmpty) return RelayPaths(override);
-    final home = e['HOME'] ?? e['USERPROFILE'] ?? '.';
+    if (Platform.isWindows) {
+      // USERPROFILE first: Git Bash sets a HOME of its own.
+      final home = e['USERPROFILE'] ?? e['HOME'] ?? '.';
+      return RelayPaths('${e['APPDATA'] ?? '$home\\AppData\\Roaming'}\\Relay');
+    }
+    final home = e['HOME'] ?? '.';
     if (Platform.isMacOS) return RelayPaths('$home/Library/Application Support/Relay');
-    if (Platform.isWindows) return RelayPaths('${e['APPDATA'] ?? home}\\Relay');
     final xdg = e['XDG_DATA_HOME'];
-    return RelayPaths('${xdg ?? '$home/.local/share'}/relay');
+    return RelayPaths('${xdg ?? '$home/.local/share'}/relay', runtimeDir: e['XDG_RUNTIME_DIR']);
   }
 
   final String home;
+  final String? runtimeDir;
+
+  String _join(String name) => '$home${Platform.pathSeparator}$name';
 
   /// The Unix socket path. macOS and Linux cap these at about 104 bytes,
   /// so a long home folder falls back to a short path in /tmp named after
@@ -161,14 +171,16 @@ class RelayPaths {
     for (final b in utf8.encode(home)) {
       h = ((h ^ b) * 0x01000193) & 0xffffffff;
     }
-    return '/tmp/relay-${h.toRadixString(16)}.sock';
+    final dir = runtimeDir != null && runtimeDir!.isNotEmpty ? runtimeDir! : '/tmp';
+    return '$dir/relay-${h.toRadixString(16)}.sock';
   }
-  String get database => '$home/relay.db';
+
+  String get database => _join('relay.db');
 
   /// `{pid, version, protocol, socket|port, token, startedAt}` written by relayd.
-  String get daemonInfo => '$home/daemon.json';
-  String get workspaces => '$home/workspaces';
-  String get logs => '$home/logs';
+  String get daemonInfo => _join('daemon.json');
+  String get workspaces => _join('workspaces');
+  String get logs => _join('logs');
 
   /// Whether this OS uses a Unix socket (else loopback TCP + token).
   static bool get usesUnixSocket => !Platform.isWindows;

@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 
 Future<void> showNewProjectDialog(BuildContext context, WidgetRef ref) =>
     showDialog<void>(context: context, builder: (_) => const _NewProject());
@@ -166,7 +167,7 @@ class NoProjects extends ConsumerWidget {
           Box(
             padding: const EdgeInsets.all(14),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text('Agents found on this Mac', style: context.label),
+              Text('Agents found on ${Desk.thisComputer}', style: context.label),
               const SizedBox(height: 8),
               Wrap(spacing: 10, runSpacing: 8, children: [
                 for (final a in agents)

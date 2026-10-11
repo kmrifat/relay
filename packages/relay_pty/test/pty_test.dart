@@ -14,7 +14,7 @@ void main() {
     expect(out, contains('is-a-tty'));
     expect(out, contains('30 100'));
     expect(await pty.exitCode, 0);
-  }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
+  }, testOn: '!windows', skip: helper == null ? 'run tool/build_pty.sh first' : false);
 
   test('input, resize and exit code', () async {
     final pty = await Pty.start('/bin/sh', [], helper: helper!, cols: 80, rows: 24);
@@ -26,7 +26,7 @@ void main() {
     expect(await pty.exitCode.timeout(const Duration(seconds: 5)), 3);
     await sub.cancel();
     expect(buf.toString(), contains('40 120'));
-  }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
+  }, testOn: '!windows', skip: helper == null ? 'run tool/build_pty.sh first' : false);
 
   test('interrupt stops a long command', () async {
     final pty = await Pty.start('/bin/sleep', ['30'], helper: helper!);
@@ -34,5 +34,44 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 200));
     pty.interrupt();
     expect(await pty.exitCode.timeout(const Duration(seconds: 5)), 130);
+  }, testOn: '!windows', skip: helper == null ? 'run tool/build_pty.sh first' : false);
+
+  // ConPTY (relay_pty_win.c): the same frames, Windows commands.
+  test('Windows: runs a command in a pseudoconsole and reports its exit code', testOn: 'windows', () async {
+    final pty = await Pty.start('cmd.exe', ['/d', '/c', 'echo relay-ok & exit 3'], helper: helper!, cols: 100, rows: 30);
+    final buf = StringBuffer();
+    pty.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
+    expect(await pty.exitCode.timeout(const Duration(seconds: 15)), 3);
+    expect(buf.toString(), contains('relay-ok'));
+  }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
+
+  test('Windows: input reaches the shell; resize; closing ends it', testOn: 'windows', () async {
+    final pty = await Pty.start('cmd.exe', ['/d', '/q'], helper: helper!, cols: 80, rows: 24, environment: {...Platform.environment, 'RELAY_PTY_DEBUG': '1'});
+    final buf = StringBuffer();
+    final log = StringBuffer();
+    pty.output.listen((b) => buf.write(utf8.decode(b, allowMalformed: true)));
+    pty.errors.listen((b) => log.write(utf8.decode(b, allowMalformed: true)));
+    // Type once the prompt is up, as a person does.
+    for (var i = 0; i < 100 && !buf.toString().contains('>'); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    pty.resize(120, 40);
+    // Enter is \r, as a terminal sends it (a \n reaches cmd as Ctrl+J, a continuation).
+    pty.writeString('echo typed-%COMSPEC:~0,1%-ok\rexit 5\r');
+    final code = await pty.exitCode.timeout(const Duration(seconds: 15), onTimeout: () {
+      printOnFailure('--- helper log ---\n$log\n--- terminal output ---\n${buf.toString().replaceAll('\x1b', '<ESC>')}');
+      pty.kill();
+      return -1;
+    });
+    expect(code, 5);
+    expect(buf.toString(), contains('typed-'));
+  }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
+
+  test('Windows: kill ends the command tree', testOn: 'windows', () async {
+    final pty = await Pty.start('cmd.exe', ['/d', '/c', 'ping -n 60 127.0.0.1'], helper: helper!);
+    pty.output.listen((_) {});
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    await pty.kill();
+    await pty.exitCode.timeout(const Duration(seconds: 10));
   }, skip: helper == null ? 'run tool/build_pty.sh first' : false);
 }

@@ -70,7 +70,7 @@ class Channels {
     for (final ch in store.list<Channel>(Kind.channel)) {
       final read = DateTime.tryParse(store.meta('chread.${ch.id}') ?? '') ?? DateTime(2000);
       final msgs = store.list<Message>(Kind.message, channelId: ch.id);
-      final unread = msgs.where((m) => m.createdAt.isAfter(read) && !(m.authorKind == 'person' && m.author == me && m.deviceId == ctx.deviceId)).length;
+      final unread = msgs.where((m) => !m.createdAt.isBefore(read) && !(m.authorKind == 'person' && m.author == me && m.deviceId == ctx.deviceId)).length;
       final last = msgs.isEmpty ? null : msgs.map((m) => m.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
       out.add({...ch.toJson(), 'unread': unread, 'lastAt': last?.toIso8601String()});
     }

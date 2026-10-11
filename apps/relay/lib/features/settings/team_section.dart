@@ -10,6 +10,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../../ui/platform.dart';
 
 /// Settings → Team: set up sync (create or join), then status, invites,
 /// sharing and the team's devices.
@@ -115,7 +116,7 @@ class _SetupState extends ConsumerState<_Setup> {
     Widget field(String label, TextEditingController ctl, {String? hint, bool mono = false}) =>
         FieldRow(label, FieldInput(controller: ctl, hint: hint, mono: mono, size: 12), labelWidth: 120);
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      Text('Share this board with your team. Everything is encrypted on this Mac before it leaves; '
+      Text('Share this board with your team. Everything is encrypted on ${Desk.thisComputer} before it leaves; '
           'your storage only ever holds ciphertext. No Relay account, no Relay server.',
           style: context.t(12, color: c.text2)),
       const SizedBox(height: 10),
@@ -270,7 +271,7 @@ class _InTeam extends ConsumerWidget {
               SizedBox(width: 120, child: Text('Share my agents', style: context.t(12, color: c.text2))),
               Expanded(
                 child: Text(
-                  'Teammates may queue work on this Mac\'s agents. Personal plans (Claude Pro/Max, ChatGPT, a personal Google login) are meant for your own use — '
+                  'Teammates may queue work on ${Desk.thisComputer}\'s agents. Personal plans (Claude Pro/Max, ChatGPT, a personal Google login) are meant for your own use — '
                   'share agents signed in with an API key or a Team plan (docs/terms-check.md).',
                   style: context.t(11, color: c.text3),
                 ),
@@ -337,7 +338,7 @@ class _InTeam extends ConsumerWidget {
         content: SizedBox(
           width: 360,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Text('Open Relay on your iPhone and scan this. The phone then sees your board and agents, answers them and queues work on this Mac — '
+            Text('Open Relay on your iPhone and scan this. The phone then sees your board and agents, answers them and queues work on ${Desk.thisComputer} — '
                 'from anywhere. The code works once.', style: context.t(12, color: context.c.text2)),
             const SizedBox(height: 14),
             Container(
