@@ -29,8 +29,9 @@ jobs:
             echo "::endgroup::"
           done
 
-  app:
-    runs-on: macos-15
+  # Analyzer and widget tests don't need a Mac either.
+  app-tests:
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
@@ -38,4 +39,16 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: cd apps/relay && flutter analyze && flutter test
+
+  # Only the macOS build itself runs on a Mac, and only once the cheaper
+  # jobs pass.
+  macos-build:
+    needs: [packages, app-tests]
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - run: flutter pub get
       - run: cd apps/relay && flutter build macos --debug
