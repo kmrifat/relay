@@ -70,6 +70,14 @@ jobs:
           New-Item -ItemType Directory -Force tool/out | Out-Null
           Expand-Archive sqlite.zip -DestinationPath tool/out -Force
           "$pwd\tool\out" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+      # The team Worker on Miniflare, so the live room, phone and deploy
+      # tests run on Windows too.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+      - run: npm ci --prefix worker
       - name: git identity, no CRLF rewriting
         run: |
           git config --global user.email ci@example.com
