@@ -150,3 +150,7 @@ jobs:
           channel: stable
       - run: flutter pub get
       - run: cd apps/relay && flutter build macos --debug
+      - name: The app carries relayd, relay-pty and its login agent
+        run: |
+          a=apps/relay/build/macos/Build/Products/Debug/Relay.app/Contents
+          test -x $a/Helpers/relay && test -x $a/Helpers/relay-pty && test -f $a/Library/LaunchAgents/com.binarycastle.relay.daemon.plist
