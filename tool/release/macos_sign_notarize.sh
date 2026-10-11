@@ -75,8 +75,8 @@ done
 sign --entitlements macos/Runner/Release.entitlements "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
-rm -f "$dmg"
-hdiutil create -volname Relay -srcfolder "$app" -ov -format UDZO "$dmg"
+# The drag-to-Applications window (tool/release/macos_dmg.sh).
+"$(dirname "$0")/macos_dmg.sh" "$app" "$dmg"
 sign "$dmg"
 xcrun notarytool submit "$dmg" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
 xcrun stapler staple "$dmg"
