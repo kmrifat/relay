@@ -15,6 +15,7 @@ class Op {
     required this.kind,
     required this.id,
     required this.patch,
+    this.seq,
   });
 
   factory Op.fromJson(Map<String, Object?> j) => Op(
@@ -28,6 +29,9 @@ class Op {
   final String kind;
   final String id;
   final Map<String, Object?> patch;
+
+  /// Local row number, for [Store.markSynced]. Not part of the wire form.
+  final int? seq;
 
   Map<String, Object?> toJson() => {
     'hlc': hlc.toString(),
@@ -249,14 +253,35 @@ class Store {
 
   /// Ops not yet uploaded, oldest first (for sync, M6).
   List<Op> pendingOps({int limit = 500}) => _db
-      .select('SELECT hlc, kind, id, patch FROM ops WHERE synced = 0 ORDER BY seq LIMIT ?', [limit])
+      .select('SELECT seq, hlc, kind, id, patch FROM ops WHERE synced = 0 ORDER BY seq LIMIT ?', [limit])
       .map((r) => Op(
+            seq: r['seq'] as int,
             hlc: Hlc.parse(r['hlc'] as String),
             kind: r['kind'] as String,
             id: r['id'] as String,
             patch: (jsonDecode(r['patch'] as String) as Map).cast(),
           ))
       .toList();
+
+  int get pendingCount => _db.select('SELECT COUNT(*) AS n FROM ops WHERE synced = 0').first['n'] as int;
+
+  /// Marks ops as uploaded (or as never needing upload).
+  void markSynced(Iterable<int> seqs) {
+    final list = seqs.toList();
+    if (list.isEmpty) return;
+    _db.execute('BEGIN');
+    try {
+      final stmt = _db.prepare('UPDATE ops SET synced = 1 WHERE seq = ?');
+      for (final s in list) {
+        stmt.execute([s]);
+      }
+      stmt.dispose();
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
 
   int get opCount => _db.select('SELECT COUNT(*) AS n FROM ops').first['n'] as int;
 

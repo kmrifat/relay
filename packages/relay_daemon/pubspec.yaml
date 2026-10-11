@@ -17,6 +17,7 @@ dependencies:
   relay_git: ^0.1.0
   relay_protocol: ^0.1.0
   relay_pty: ^0.1.0
+  relay_sync: ^0.1.0
 
 dev_dependencies:
   lints: ^6.0.0
