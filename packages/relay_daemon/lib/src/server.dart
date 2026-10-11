@@ -201,6 +201,8 @@ class RelayDaemon {
         authed = true;
         client.name = p['client'] as String? ?? 'client';
         api.register(peer);
+        // Local clients only: not in Api.handlers, so a paired phone can't.
+        peer.registerMethod(M.shutdown, _shutdown);
         _clients.add(client);
       }
       return {
@@ -215,6 +217,18 @@ class RelayDaemon {
       _clients.remove(client);
       client.dispose();
     });
+  }
+
+  /// An updated app replacing this relayd: answer, then stop. Stopping
+  /// stops agent runs, so that needs `force`.
+  Map<String, Object?> _shutdown(Map<String, Object?> p) {
+    final active = supervisor.totalActive;
+    if (active > 0 && p['force'] != true) {
+      throw RpcError(RpcError.busy, '$active agent run${active == 1 ? ' is' : 's are'} active; stopping relayd stops them.', {'activeRuns': active});
+    }
+    // After the answer is written; stop() closes every connection.
+    Timer.run(stop);
+    return {'pid': pid, 'version': relayVersion, 'stoppedRuns': active};
   }
 
   void _wireEvents() {
@@ -240,8 +254,11 @@ class RelayDaemon {
     });
   }
 
-  Future<void> stop() async {
-    if (_stopped.isCompleted) return;
+  Future<void>? _stopping;
+
+  Future<void> stop() => _stopping ??= _stop();
+
+  Future<void> _stop() async {
     await supervisor.dispose();
     await sync.dispose();
     await channels.dispose();

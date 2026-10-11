@@ -5,10 +5,35 @@ import 'dart:io';
 /// it in `hello`; a newer relayd keeps answering older UIs where it can.
 const protocolVersion = 1;
 
+/// Compares two `major.minor.patch` versions (a `-pre` or `+build`
+/// suffix is ignored): negative when [a] is older than [b], zero when the
+/// same, positive when newer. Null when either doesn't parse, so callers
+/// can leave an unknown relayd alone.
+int? compareVersions(String a, String b) {
+  List<int>? parse(String v) {
+    final core = v.trim().split(RegExp(r'[-+]')).first.split('.');
+    if (core.isEmpty || core.length > 3) return null;
+    final n = [for (final x in core) int.tryParse(x)];
+    if (n.any((x) => x == null)) return null;
+    return [...n.cast<int>(), ...List.filled(3 - n.length, 0)];
+  }
+
+  final x = parse(a), y = parse(b);
+  if (x == null || y == null) return null;
+  for (var i = 0; i < 3; i++) {
+    if (x[i] != y[i]) return x[i].compareTo(y[i]);
+  }
+  return 0;
+}
+
 /// Request methods (client → relayd). See docs/protocol.md.
 abstract final class M {
   static const hello = 'hello';
   static const status = 'status';
+
+  /// Stops relayd cleanly (an updated app replacing an older relayd).
+  /// Refused while agent runs are active unless `force` is set.
+  static const shutdown = 'shutdown';
 
   static const projectsList = 'projects.list';
   static const projectsCreate = 'projects.create';

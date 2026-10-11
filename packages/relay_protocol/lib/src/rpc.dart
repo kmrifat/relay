@@ -21,6 +21,9 @@ class RpcError implements Exception {
   /// Relay-specific: a referenced record does not exist.
   static const notFound = -32004;
 
+  /// Relay-specific: not now (`shutdown` while agent runs are active).
+  static const busy = -32009;
+
   Map<String, Object?> toJson() => {'code': code, 'message': message, 'data': ?data};
 
   @override
