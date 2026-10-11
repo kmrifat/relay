@@ -5,6 +5,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import '../data/relay_data.dart';
+import '../ui/markdown.dart';
 import 'glass.dart';
 import 'mobile_data.dart';
 import 'mobile_shell.dart' show PersonDot, openTask;
@@ -168,15 +169,7 @@ class _Rich extends StatelessWidget {
   final Color color;
   @override
   Widget build(BuildContext context) {
-    final spans = <TextSpan>[];
-    var last = 0;
-    for (final m in RegExp(r'@[A-Za-z0-9_.-]+|^/task\b').allMatches(text)) {
-      if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start)));
-      spans.add(TextSpan(text: m.group(0), style: TextStyle(color: color == MC.text ? MC.accent : Colors.white, fontWeight: FontWeight.w600)));
-      last = m.end;
-    }
-    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
-    return Text.rich(TextSpan(style: mt(16, color: color, height: 1.3), children: spans));
+    return Markdown(text, style: phoneMd(onAccent: color != MC.text), mentions: true, selectable: false);
   }
 }
 

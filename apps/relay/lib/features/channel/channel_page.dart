@@ -10,6 +10,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
+import '../../ui/markdown.dart';
 import '../../ui/widgets.dart';
 import '../../ui/platform.dart';
 import '../task/task_bits.dart';
@@ -342,16 +343,7 @@ class _Body extends StatelessWidget {
   final String text;
   @override
   Widget build(BuildContext context) {
-    final c = context.c;
-    final spans = <TextSpan>[];
-    var last = 0;
-    for (final m in RegExp(r'@[A-Za-z0-9_.-]+|^/task\b').allMatches(text)) {
-      if (m.start > last) spans.add(TextSpan(text: text.substring(last, m.start)));
-      spans.add(TextSpan(text: m.group(0), style: TextStyle(color: c.accentIcon, fontWeight: FontWeight.w600)));
-      last = m.end;
-    }
-    if (last < text.length) spans.add(TextSpan(text: text.substring(last)));
-    return SelectableText.rich(TextSpan(style: context.t(13, color: c.text), children: spans));
+    return Markdown(text, style: context.md(13), mentions: true, onLink: openWebLink);
   }
 }
 

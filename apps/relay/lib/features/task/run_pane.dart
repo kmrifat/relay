@@ -6,6 +6,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
+import '../../ui/markdown.dart';
 import '../../ui/widgets.dart';
 import 'task_bits.dart';
 
@@ -272,7 +273,7 @@ class _Stream extends ConsumerWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(color: c.bar, borderRadius: BorderRadius.circular(8)),
-          child: SelectableText('${e.data['text']}', style: context.t(13, height: 1.45)),
+          child: Markdown('${e.data['text']}', style: context.md(13), onLink: openWebLink),
         );
       case RunEventType.steer:
         return Align(
@@ -323,10 +324,17 @@ class _Stream extends ConsumerWidget {
       case RunEventType.status:
         final s = e.data['status'] as String? ?? '';
         final failed = s == 'failed';
+        final detail = e.data['detail'] as String? ?? '';
+        // A finished turn's detail is the reply already shown above it.
+        final label = switch (s) {
+          'turn_done' => 'Finished its turn',
+          'done' => 'Done',
+          _ => detail.isEmpty ? (failed ? 'Failed' : s) : detail,
+        };
         return Row(children: [
           Icon(failed ? LucideIcons.circleAlert : LucideIcons.info, size: 12, color: failed ? c.danger : c.text3),
           const SizedBox(width: 8),
-          Expanded(child: Text(e.data['detail'] as String? ?? s, maxLines: failed ? 6 : 2, overflow: TextOverflow.ellipsis, style: context.t(11, color: failed ? c.danger : c.text3))),
+          Expanded(child: Text(label, maxLines: failed ? 6 : 2, overflow: TextOverflow.ellipsis, style: context.t(11, color: failed ? c.danger : c.text3))),
           Text(time, style: context.t(11, color: c.text3)),
         ]);
       case RunEventType.error:
