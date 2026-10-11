@@ -69,7 +69,16 @@ Once, in App Store Connect:
 
 **Push in production:** the entitlement says `development`, and Xcode switches it to production for App Store builds. The team's APNs key itself is set in the Mac app (Settings → Team → iPhone push).
 
-## 5. Release checklist
+## 5. Windows and Linux (M10)
+
+The `release.yml` jobs build them on every tag:
+
+- **Windows:** `relay-windows-x64-setup.exe` (Inno Setup, per-user) and a portable `relay-windows-x64.zip`. The app is in the root; relayd, `relay-pty.exe` and `sqlite3.dll` are in `helpers\`.
+- **Linux:** `relay-linux-x64.AppImage` with its `.zsync` (AppImageUpdate), and a `relay-linux-x64.tar.gz` bundle.
+
+Neither is code-signed yet. On Windows, SmartScreen warns until a signing certificate is added (a decision for the owner). The installer script is `tool/release/windows_installer.iss`; the AppImage script is `tool/release/linux_appimage.sh`.
+
+## 6. Release checklist
 
 1. Run all the tests (CI's `checks` workflow, or locally as in the README).
 2. Bump the three versions and the build number, then commit and merge to `main` through a PR.
