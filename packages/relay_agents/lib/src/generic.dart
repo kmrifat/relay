@@ -130,8 +130,8 @@ GenericAdapter geminiAdapter() => GenericAdapter(
   goodAt: const ['long context', 'docs'],
 );
 
-/// OpenCode (any provider, e.g. DeepSeek): `opencode run <prompt>
-/// [--model provider/model]`.
+/// OpenCode (any provider, e.g. DeepSeek):
+/// `opencode run <prompt> [--model provider/model]`.
 GenericAdapter openCodeAdapter() => GenericAdapter(
   id: 'opencode',
   name: 'OpenCode',

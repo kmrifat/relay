@@ -300,6 +300,8 @@ class TaskCard extends ConsumerWidget {
                         style: context.t(10, w: FontWeight.w600, color: run.status == RunStatus.paused ? c.warning : c.success)),
                   ]),
                 ?attentionBadge(context, t),
+                if (t.data['draft'] == true) Pill('Draft · plan', fg: c.purple, bg: c.purpleWash),
+                if (t.str('verdict') == 'failed') Pill('QA failed', fg: c.danger, bg: c.dangerWash),
                 if (t.priority > 0) priorityBadge(context, t),
               ]),
             ),

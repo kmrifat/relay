@@ -103,6 +103,16 @@ void main() {
     expect(geminiAdapter().efforts, isEmpty);
   });
 
+  test('Codex gets Relay\'s MCP server as config overrides; Claude drops tools a role may not use', () {
+    final codex = CodexAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', relayMcp: const McpServer('/apps/relay', ['mcp', '--run', 'r1'], env: {'RELAY_HOME': '/h'})));
+    expect(codex, containsAllInOrder(['-c', 'mcp_servers.relay.command="/apps/relay"', '-c', 'mcp_servers.relay.args=["mcp", "--run", "r1"]', '-c', 'mcp_servers.relay.env={RELAY_HOME="/h"}']));
+    expect(codex.last, 'p');
+    final ro = CodexAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', readOnly: true, autoApprove: true));
+    expect(ro, containsAllInOrder(['--sandbox', 'read-only']));
+    final claude = ClaudeCodeAdapter.argsFor(RunSpec(prompt: 'p', cwd: '/', readOnly: true, disallowedTools: ['Bash']));
+    expect(claude, containsAllInOrder(['--disallowedTools', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'Bash', '--permission-prompts']));
+  });
+
   test('Claude Code args: relay MCP tools are pre-allowed, the workspace is added', () {
     final args = ClaudeCodeAdapter.argsFor(RunSpec(
       prompt: 'p',

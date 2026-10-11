@@ -6,6 +6,7 @@ import 'package:relay_agents/relay_agents.dart';
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
+import 'collab.dart';
 import 'context.dart';
 import 'sync_service.dart';
 import 'workspaces.dart';
@@ -14,6 +15,11 @@ import 'workspaces.dart';
 /// and keeps the queue moving: slots per agent, plan limits, routing rules,
 /// dependencies, start times and pipelines.
 class Supervisor {
+  /// Messages, plans and handoffs between agents (M14).
+  late final collab = Collab(ctx)
+    ..deliverLive = _deliverLive
+    ..tick = () => unawaited(tick());
+
   Supervisor(this.ctx, this.workspaces) {
     workspaces.contractListeners.add(_onContractChanged);
   }
@@ -90,6 +96,7 @@ class Supervisor {
         if (!_ready(t)) continue;
         if (_needsApproval(t)) continue;
         final agentId = pickAgent(t);
+        if (agentId != null && _teamPaused(agentId)) continue;
         if (agentId == null) continue;
         final agent = ctx.agent(agentId);
         if (agent == null || !agent.enabled || agent.binaryPath == null) continue;
@@ -146,6 +153,26 @@ class Supervisor {
       return false;
     }
     return true;
+  }
+
+  /// "Pause team" holds back new work for every agent on the team.
+  bool _teamPaused(String agentId) {
+    final a = ctx.agent(agentId);
+    return a != null && a.teamId != null && ctx.store.get<Team>(Kind.team, a.teamId!)?.data['paused'] == true;
+  }
+
+  /// A message for [agentId] goes into its live run, if it has one that
+  /// takes messages.
+  bool _deliverLive(String agentId, String text, String from) {
+    var delivered = false;
+    for (final e in _sessions.entries) {
+      final run = ctx.store.get<Run>(Kind.run, e.key);
+      if (run?.agentId != agentId || !e.value.canSteer) continue;
+      e.value.steer(text);
+      ctx.store.appendEvent(e.key, RunEventType.steer, {'text': text, 'from': from});
+      delivered = true;
+    }
+    return delivered;
   }
 
   /// A plan limit belongs to the CLI's account, so it holds back every
@@ -253,7 +280,7 @@ class Supervisor {
     final (useModel, useEffort) = modelFor(task, step, agent, adapter, model: model, effort: effort);
 
     final cwd = await workspaces.prepare(task);
-    final prompt = buildPrompt(task, step, cwd, agent, extra: extraPrompt);
+    final prompt = buildPrompt(task, step, cwd, agent, extra: extraPrompt, mail: collab.takeMail(agent.id));
     final run = ctx.store.create<Run>(Kind.run, {
       'taskId': task.id,
       'projectId': task.projectId,
@@ -289,8 +316,9 @@ class Supervisor {
         binary: agent.binaryPath,
         model: useModel,
         effort: useEffort,
-        environment: {...ctx.env, 'RELAY_RUN': run.id, 'RELAY_TASK': ctx.taskKey(task)},
+        environment: {...ctx.env, 'RELAY_RUN': run.id, 'RELAY_TASK': ctx.taskKey(task), 'RELAY_HOME': ctx.paths.home},
         mcpConfigPath: mcpPath,
+        relayMcp: ctx.relayBinary == null ? null : McpServer(ctx.relayBinary!, ['mcp', '--run', run.id], env: {'RELAY_HOME': ctx.paths.home}),
         // A single-repo task starts in its repo; the workspace around it
         // holds PROJECT.md and the other repos' snapshots.
         addDirs: [if (!p.equals(workspaces.folderFor(task), cwd)) workspaces.folderFor(task)],
@@ -336,7 +364,7 @@ class Supervisor {
     for (var i = 0; i < t.pipeline.length; i++) (i == index ? t.pipeline[i].withStatus(status) : t.pipeline[i]).toJson(),
   ];
 
-  String buildPrompt(Task task, int step, String cwd, AgentProfile agent, {String? extra}) {
+  String buildPrompt(Task task, int step, String cwd, AgentProfile agent, {String? extra, List<Comment> mail = const []}) {
     final project = ctx.project(task.projectId);
     final key = task.displayKey(project.key);
     final touched = ctx.touchedRepos(task);
@@ -399,9 +427,13 @@ class Supervisor {
         ..writeln()
         ..writeln('## This is a question, not a change')
         ..writeln('Every repo here is a read-only copy. Read what you need; don\'t edit files or commit.')
-        ..writeln(ask == 'plan'
-            ? 'Reply with a plan: the steps in order, which repo each touches, and the tasks you would make, each with a title and "done when" checks.'
-            : 'Reply with the answer in your final message; it is posted in the channel. Keep it short and point to files by path.');
+        ..writeln(switch (ask) {
+          'plan' when agent.can(AgentCap.assign) =>
+            'Propose the plan with relay_propose_plan: tasks in order, each with a title, brief, "done when" checks and the teammate who does it. '
+                'It starts when the person approves it. Then reply with one line saying what you proposed.',
+          'plan' => 'Reply with a plan: the steps in order, which repo each touches, and the tasks you would make, each with a title and "done when" checks.',
+          _ => 'Reply with the answer in your final message; it is posted in the channel. Keep it short and point to files by path.',
+        });
     } else if (!agent.can(AgentCap.editCode)) {
       b
         ..writeln()
@@ -417,7 +449,18 @@ class Supervisor {
         ..writeln('Then reply with a two-sentence summary of what you did.');
     }
     if (ctx.relayBinary != null) {
-      b.writeln('You have `relay` MCP tools to post progress, ask the team a question, or message another agent on this task.');
+      final generic = ctx.registry[agent.adapter] is GenericAdapter;
+      b.writeln(generic
+          ? 'Reach Relay from the shell: `"${ctx.relayBinary}" tool` lists the tools, and `"${ctx.relayBinary}" tool relay_progress \'{"text":"…"}\'` calls one '
+              '(post progress, ask a question, message a teammate, report test results).'
+          : 'You have `relay` MCP tools to post progress, ask a question, message a teammate (relay_message_agent), report test results (relay_report) and see your team (relay_team).');
+    }
+    if (task.str('handoffNote') case final note? when note.isNotEmpty) b..writeln()..writeln('## Handed to you')..writeln(note);
+    if (mail.isNotEmpty) {
+      b..writeln()..writeln('## Messages for you');
+      for (final m in mail) {
+        b.writeln('- ${m.author}: ${m.body.replaceAll('\n', ' ')}');
+      }
     }
     if (extra != null && extra.trim().isNotEmpty) b..writeln()..writeln(extra.trim());
     return b.toString();
@@ -552,7 +595,18 @@ class Supervisor {
           'attention': null,
         });
       } else {
-        ctx.store.patch<Task>(Kind.task, task.id, {'status': TaskStatus.review, 'activeRunId': null, 'attention': null});
+        final agent = ctx.agent(run.agentId);
+        final changed = workspaces.changesOf(task.id).any((ch) => ch.additions + ch.deletions + ch.filesChanged > 0);
+        final next = agent == null ? null : collab.afterDone(fresh, agent, changed: changed);
+        if (next != null) {
+          ctx.store.patch<Task>(Kind.task, task.id, {'activeRunId': null, 'attention': null, ...next});
+          final to = ctx.agent(next['assignee'] as String? ?? '');
+          if (to != null && next['status'] == TaskStatus.queued) {
+            ctx.store.create<Comment>(Kind.comment, {'taskId': task.id, 'authorKind': 'system', 'author': 'Relay', 'body': 'Handed to ${to.name}: ${next['handoffNote'] ?? ''}'});
+          }
+        } else {
+          ctx.store.patch<Task>(Kind.task, task.id, {'status': TaskStatus.review, 'activeRunId': null, 'attention': null});
+        }
       }
     } else if (requeue) {
       ctx.store.patch<Task>(Kind.task, task.id, {'status': TaskStatus.queued, 'activeRunId': null, 'attention': null});
@@ -634,26 +688,7 @@ class Supervisor {
 
   /// Delivers an agent-to-agent message: a comment on the task, and a
   /// message into the target agent's active run if it can take one.
-  void messageAgent(String taskId, String fromAgent, String toAgent, String text) {
-    ctx.store.create<Comment>(Kind.comment, {
-      'taskId': taskId,
-      'authorKind': 'agent',
-      'author': ctx.agent(fromAgent)?.name ?? fromAgent,
-      'agentId': fromAgent,
-      'to': toAgent,
-      'body': text,
-    });
-    if (!ctx.boolSetting('agentMessages', true)) return;
-    for (final r in ctx.store.list<Run>(Kind.run, taskId: taskId)) {
-      if (r.agentId != toAgent) continue;
-      final s = _sessions[r.id];
-      if (s != null && s.canSteer) {
-        final msg = '${ctx.agent(fromAgent)?.name ?? fromAgent} asks: $text';
-        s.steer(msg);
-        ctx.store.appendEvent(r.id, RunEventType.steer, {'text': msg, 'from': fromAgent});
-      }
-    }
-  }
+  String messageAgent(String taskId, String fromAgent, String toAgent, String text) => collab.message(fromAgent, toAgent, text, taskId: taskId);
 
   void _broadcastAgentState() {
     ctx.broadcast(E.agentState, {

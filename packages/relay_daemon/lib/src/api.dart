@@ -218,8 +218,47 @@ class Api {
         final r = ctx.run(_s(p, 'id'));
         return {...r.toJson(), 'live': supervisor.isLive(r.id), 'canSteer': supervisor.session(r.id)?.canSteer ?? false};
       },
-      M.agentsMessage: (p) {
-        supervisor.messageAgent(_s(p, 'taskId'), _s(p, 'from'), _s(p, 'to'), _s(p, 'text'));
+      M.agentsMessage: (p) => supervisor.collab.message(_s(p, 'from'), _s(p, 'to'), _s(p, 'text'), taskId: p['taskId'] as String?),
+      M.agentsMail: (p) => _json(supervisor.collab.mailSince(_s(p, 'agentId'), DateTime.tryParse(p['since'] as String? ?? '') ?? DateTime(2000))),
+      M.agentsReport: (p) {
+        // QA's verdict: a fail sends the task back to whoever built it.
+        final t = ctx.task(_s(p, 'taskId'));
+        final failed = (p['failed'] as num?)?.toInt() ?? 0;
+        final passed = (p['passed'] as num?)?.toInt() ?? 0;
+        final agent = ctx.agent(_s(p, 'agentId'));
+        store.patch<Task>(Kind.task, t.id, {'verdict': failed > 0 ? 'failed' : 'passed'});
+        return store.create<Comment>(Kind.comment, {
+          'taskId': t.id,
+          'authorKind': 'agent',
+          'author': agent?.name ?? p['agentId'],
+          'agentId': p['agentId'],
+          'report': {'kind': p['kind'] ?? 'test', 'passed': passed, 'failed': failed},
+          'body': '${failed > 0 ? '✗' : '✓'} ${p['kind'] ?? 'test'}: $passed passed, $failed failed.${(p['details'] as String? ?? '').trim().isEmpty ? '' : '\n\n${(p['details'] as String).trim()}'}',
+        }).toJson();
+      },
+      M.agentsCreateTask: (p) {
+        final agent = ctx.agent(_s(p, 'agentId')) ?? (throw RpcError(RpcError.notFound, 'No agent'));
+        return supervisor.collab.createTask(agent, ctx.task(_s(p, 'fromTask')), _m(p, 'fields')).toJson();
+      },
+      M.agentsPost: (p) {
+        final agent = ctx.agent(_s(p, 'agentId'));
+        final ch = store.get<Channel>(Kind.channel, _s(p, 'channelId')) ?? (throw RpcError(RpcError.notFound, 'No channel'));
+        return store.create<Message>(Kind.message, {
+          'channelId': ch.id,
+          'authorKind': 'agent',
+          'author': agent?.name ?? p['agentId'],
+          'deviceId': ctx.deviceId,
+          'body': _s(p, 'text'),
+          'taskId': ?p['taskId'],
+        }).toJson();
+      },
+      M.plansPropose: (p) {
+        final agent = ctx.agent(_s(p, 'agentId')) ?? (throw RpcError(RpcError.notFound, 'No agent'));
+        return supervisor.collab.proposePlan(agent, ctx.task(_s(p, 'fromTask')), p['summary'] as String? ?? '', ((p['tasks'] as List?) ?? const []).map((e) => (e as Map).cast<String, Object?>()).toList());
+      },
+      M.plansApprove: (p) => supervisor.collab.approvePlan(_s(p, 'planId')),
+      M.plansReject: (p) {
+        supervisor.collab.rejectPlan(_s(p, 'planId'));
         return true;
       },
       M.runsEvents: (p) {

@@ -352,6 +352,109 @@ void main() {
     await expectLater(client.call(M.agentsDelete, {'id': 'demo'}), throwsA(isA<RpcError>()));
   });
 
+  test('collaboration: mailbox, plans, build → QA → back → QA → review, PM answers questions, limits', () async {
+    final pid = (await client.list(M.projectsList)).first['id'] as String;
+    final api = (await client.list(M.reposList, {'projectId': pid})).firstWhere((r) => r['name'] == 'api');
+    final team = await client.map(M.teamsCreate, {'name': 'Collab squad', 'template': 'product-squad', 'projectIds': [pid], 'runtime': 'demo'});
+    final ids = (team['members'] as List).cast<String>();
+    final (pm, be, fe, qa) = (ids[0], ids[1], ids[2], ids[3]);
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
+    Future<Map> task(String id) async => (await client.map(M.tasksGet, {'id': id}))['task'] as Map;
+
+    // Plan: drafts wait in Backlog; approving queues them in order.
+    final anchorTask = await client.map(M.tasksCreate, {'projectId': pid, 'fields': {'title': 'Refunds epic', 'status': 'backlog'}});
+    final plan = await client.map(M.plansPropose, {
+      'agentId': pm,
+      'fromTask': anchorTask['id'],
+      'summary': 'API first, then QA.',
+      'tasks': [
+        {'title': 'Refund endpoint', 'assignee': 'backend', 'doneWhen': ['tests pass']},
+        {'title': 'Test refunds', 'assignee': 'QA', 'after': [0]},
+      ],
+    });
+    expect(plan['approved'], isFalse);
+    final drafts = (await client.list(M.tasksList)).where((t) => t['planId'] == plan['planId']).toList()..sort((a, b) => (a['number'] as int).compareTo(b['number'] as int));
+    expect(drafts.map((t) => [t['status'], t['assignee'], t['draft']]), [['backlog', be, true], ['backlog', qa, true]]);
+    expect(drafts[1]['dependsOn'], [drafts[0]['id']]);
+    final card = (await client.list(M.messagesList, {'channelId': Channel.idFor(pid)})).firstWhere((m) => m['id'] == plan['planId']);
+    expect([card['tag'], card['planState'], (card['items'] as List).length], ['plan', 'proposed', 2]);
+    // Paused team: approving queues them, nothing starts.
+    await client.call(M.teamsUpdate, {'id': team['id'], 'fields': {'paused': true}});
+    expect(await client.call(M.plansApprove, {'planId': plan['planId']}), 2);
+    await Future<void>.delayed(const Duration(seconds: 3));
+    expect((await client.list(M.runsList)).where((r) => r['taskId'] == drafts[0]['id']), isEmpty);
+    expect((await task(drafts[0]['id'] as String))['status'], 'queued');
+    for (final d in drafts) {
+      await client.call(M.tasksDelete, {'id': d['id']});
+    }
+    await client.call(M.teamsUpdate, {'id': team['id'], 'fields': {'paused': false}});
+
+    // Handoffs: the backend's work goes to QA, a fail goes back, a pass goes to review.
+    final work = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Refund API', 'assigneeKind': 'agent', 'assignee': be, 'repoIds': [api['id']], 'status': 'queued'},
+    });
+    final wid = work['id'] as String;
+    await waitFor(() async => (await task(wid))['assignee'] == qa ? true : null, timeout: const Duration(seconds: 60));
+    // QA reports a failure while it checks.
+    await client.call(M.agentsReport, {'taskId': wid, 'agentId': qa, 'kind': 'test', 'passed': 3, 'failed': 1, 'details': 'zero-decimal currencies'});
+    final back = await waitFor(() async {
+      final t = await task(wid);
+      return t['assignee'] == be && t['rounds'] == 1 ? t : null;
+    }, timeout: const Duration(seconds: 60));
+    expect(back['handoffNote'], contains('found problems'));
+    final done = await waitFor(() async {
+      final t = await task(wid);
+      return t['status'] == 'review' ? t : null;
+    }, timeout: const Duration(seconds: 90));
+    expect(done['assignee'], qa);
+    final agentsRan = (await client.list(M.runsList)).where((r) => r['taskId'] == wid).map((r) => r['agentId']).toList();
+    expect(agentsRan, [be, qa, be, qa]);
+    final runBe = (await client.list(M.runsList)).firstWhere((r) => r['taskId'] == wid && r['agentId'] == be);
+
+    // A dev's question goes to the PM, who is idle, so Relay wakes the PM.
+    final tools = RelayTools(RelayPaths(home), runBe['id'] as String);
+    final asked = await tools.call('relay_ask', {'question': 'Line item or new order?'});
+    expect(asked, contains('Asked Pria'));
+    final wake = await waitFor(() async => (await client.list(M.tasksList)).where((t) => t['assignee'] == pm && (t['tags'] as List? ?? []).contains('message')).firstOrNull);
+    expect(wake['brief'], contains('Line item or new order?'));
+    // The backend may not assign work or propose plans.
+    expect(() => tools.call('relay_propose_plan', {'tasks': [{'title': 'x'}]}), throwsA(isA<RpcError>()));
+    expect((await tools.list()).map((t) => t['name']), isNot(contains('relay_propose_plan')));
+    final team2 = await tools.call('relay_team', {});
+    expect(team2, allOf(contains('Pria'), contains('QA engineer'), contains('(you)')));
+    await tools.close();
+
+    // The same tools from a shell, for CLIs without MCP.
+    final shell = await Process.run(relayBin, ['tool', 'relay_team'], environment: {'RELAY_RUN': runBe['id'] as String, 'RELAY_HOME': home});
+    expect(shell.exitCode, 0, reason: '${shell.stderr}');
+    expect(shell.stdout, contains('Quinn'));
+
+    // A message to a busy agent waits for its next run's prompt.
+    await client.call(M.tasksCreate, {'projectId': pid, 'fields': {'title': 'Busy work', 'assigneeKind': 'agent', 'assignee': fe, 'status': 'backlog'}});
+    final queuedFe = await client.map(M.tasksCreate, {'projectId': pid, 'fields': {'title': 'UI', 'assigneeKind': 'agent', 'assignee': fe, 'repoIds': [api['id']], 'status': 'queued', 'startAt': DateTime.now().add(const Duration(hours: 1)).toUtc().toIso8601String()}});
+    final said = await client.call<String>(M.agentsMessage, {'from': be, 'to': 'frontend', 'text': 'RefundLine changed', 'taskId': wid});
+    expect(said, contains('next run'));
+    await client.call(M.tasksUpdate, {'id': queuedFe['id'], 'fields': {'startAt': 'now'}});
+    final feRun = await waitFor(() async => (await client.list(M.runsList)).where((r) => r['taskId'] == queuedFe['id']).firstOrNull);
+    expect((await client.map(M.runsGet, {'id': feRun['id']}))['prompt'], contains('Bram: RefundLine changed'));
+
+    // Limits: tasks an agent makes per hour, and ping-pong between two agents.
+    await client.call(M.settingsSet, {'values': {'maxAgentTasksPerHour': '1', 'maxAgentExchanges': '3'}});
+    await client.call(M.agentsCreateTask, {'agentId': qa, 'fromTask': wid, 'fields': {'title': 'bug 1'}});
+    await expectLater(client.call(M.agentsCreateTask, {'agentId': qa, 'fromTask': wid, 'fields': {'title': 'bug 2'}}), throwsA(isA<RpcError>()));
+    await expectLater(() async {
+      for (var i = 0; i < 4; i++) {
+        await client.call(M.agentsMessage, {'from': qa, 'to': be, 'text': 'ping $i', 'taskId': wid});
+      }
+    }(), throwsA(isA<RpcError>()));
+    await client.call(M.settingsSet, {'values': {'maxAgentTasksPerHour': '20', 'maxAgentExchanges': '12', 'askBeforeShell': 'true'}});
+    for (final r in (await client.list(M.runsList)).where((r) => RunStatus.isActive('${r['status']}'))) {
+      await client.call(M.runsStop, {'runId': r['id']});
+    }
+    await client.call(M.teamsDelete, {'id': team['id']});
+  });
+
   test('time limit stops a run; a spend cap keeps an agent from starting', () async {
     final pid = (await client.list(M.projectsList)).first['id'];
     final repos = await client.list(M.reposList, {'projectId': pid});

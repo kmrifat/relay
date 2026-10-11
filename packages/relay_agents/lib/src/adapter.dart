@@ -17,6 +17,7 @@ class RunSpec {
     this.autoApprove = false,
     this.readOnly = false,
     this.disallowedTools = const [],
+    this.relayMcp,
   });
 
   final String prompt;
@@ -53,6 +54,18 @@ class RunSpec {
   /// More of the CLI's tools to switch off, by its own names (`Bash` for an
   /// agent that may not run a shell). CLIs without such a switch ignore it.
   final List<String> disallowedTools;
+
+  /// Relay's MCP server, for CLIs that take it on the command line rather
+  /// than from [mcpConfigPath] (Codex).
+  final McpServer? relayMcp;
+}
+
+/// How to start an MCP server: a command, its arguments and environment.
+class McpServer {
+  const McpServer(this.command, this.args, {this.env = const {}});
+  final String command;
+  final List<String> args;
+  final Map<String, String> env;
 }
 
 /// The name of Relay's MCP server in the config `mcpConfigJson` writes; its

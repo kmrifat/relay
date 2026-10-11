@@ -102,4 +102,36 @@ void main() {
     expect(find.textContaining('AGENTS'), findsNothing);
     await tester.binding.setSurfaceSize(null);
   });
+
+  testWidgets('a PM plan in the channel: tasks in order, approve starts it', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    final approved = <String>[];
+    final now = DateTime.now().toUtc().toIso8601String();
+    final client = await tester.runAsync(() => fakeRelayd(extra: {
+      M.messagesList: (p) => p['channelId'] == 'ch-p1'
+          ? [
+              {'id': 'plan-1', 'channelId': 'ch-p1', 'authorKind': 'agent', 'author': 'Pria', 'body': 'API first, then QA.', 'tag': 'plan', 'planId': 'plan-1', 'planState': 'proposed', 'createdAt': now,
+                'items': [
+                  {'taskId': 't9', 'key': 'KT-9', 'title': 'Refund endpoint', 'agent': 'Bram', 'after': []},
+                  {'taskId': 't10', 'key': 'KT-10', 'title': 'Test refunds', 'agent': 'Quinn', 'after': [0]},
+                ]},
+            ]
+          : [],
+      M.plansApprove: (p) {
+        approved.add(p['planId'] as String);
+        return 2;
+      },
+    }));
+    await tester.pumpWidget(app(client!));
+    await settleUntil(tester, find.text('Share a recipe with a link'));
+    await tester.tap(find.text('kitchenly'));
+    await settleUntil(tester, find.text('Plan · 2 tasks'));
+    expect(find.text('Waiting for your OK'), findsOneWidget);
+    expect(find.text('Refund endpoint'), findsOneWidget);
+    expect(find.text('2 ← 1'), findsOneWidget);
+    await tester.tap(find.text('Approve and start'));
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+    expect(approved, ['plan-1']);
+    await tester.binding.setSurfaceSize(null);
+  });
 }

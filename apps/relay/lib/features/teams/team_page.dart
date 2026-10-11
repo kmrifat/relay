@@ -36,15 +36,18 @@ class TeamPage extends ConsumerWidget {
         title: team.name,
         subtitle: '${members.length} agent${members.length == 1 ? '' : 's'}'
             '${projects.isEmpty ? '' : ' · works on ${projects.map((p) => p.name).join(', ')}'}'
-            ' · ${team.planApproval ? 'plans wait for your OK' : 'plans start on their own'}',
+            ' · ${team.planApproval ? 'plans wait for your OK' : 'plans start on their own'}'
+            '${team.data['paused'] == true ? ' · paused' : ''}',
         actions: [
           Btn('Add agent', icon: LucideIcons.plus, kind: BtnKind.primary, onTap: () => showNewAgentDialog(context, ref, team)),
           Builder(builder: (context) => IconBtn(LucideIcons.ellipsis, onTap: () async {
             final box = context.findRenderObject() as RenderBox;
             final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
+              ('pause', team.data['paused'] == true ? 'Resume the team' : 'Pause the team (nothing new starts)', team.data['paused'] == true ? LucideIcons.play : LucideIcons.pause),
               ('approval', team.planApproval ? 'Let plans start on their own' : 'Plans wait for my OK', LucideIcons.shieldCheck),
               ('delete', 'Delete team and its agents', LucideIcons.trash2),
             ]);
+            if (v == 'pause') await client.call(M.teamsUpdate, {'id': team.id, 'fields': {'paused': team.data['paused'] == true ? null : true}});
             if (v == 'approval') await client.call(M.teamsUpdate, {'id': team.id, 'fields': {'planApproval': !team.planApproval}});
             if (v == 'delete' && context.mounted && await _confirm(context, 'Delete ${team.name}?', 'Its ${members.length} agents go too. Tasks stay, unassigned.')) {
               await client.call(M.teamsDelete, {'id': team.id});

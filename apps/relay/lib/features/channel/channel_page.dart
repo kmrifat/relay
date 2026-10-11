@@ -267,7 +267,8 @@ class _MessageRowState extends ConsumerState<_MessageRow> {
                 ]),
                 const SizedBox(height: 3),
                 if (m.tag == 'digest') _Digest(m) else if (m.body.isNotEmpty) _Body(m.body),
-                if (m.taskId != null && m.tag != 'digest') ...[const SizedBox(height: 8), _TaskCard(m.taskId!)],
+                if (m.tag == 'plan') ...[const SizedBox(height: 8), _PlanCard(m)],
+                if (m.taskId != null && m.tag != 'digest' && m.tag != 'plan') ...[const SizedBox(height: 8), _TaskCard(m.taskId!)],
                 for (final f in m.files) ...[const SizedBox(height: 8), _FileCard(m, f)],
                 if (m.reactions.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -380,6 +381,102 @@ class _Digest extends ConsumerWidget {
       ]),
     );
   }
+}
+
+/// A PM's plan (design P04): its tasks in order, who does each and what
+/// waits for what; it starts when you approve it.
+class _PlanCard extends ConsumerWidget {
+  const _PlanCard(this.m);
+  final Message m;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    final data = ref.watch(dataProvider);
+    final client = ref.read(clientProvider);
+    final items = m.maps('items');
+    final state = m.data['planState'] as String? ?? 'proposed';
+    final planId = m.data['planId'] as String? ?? m.id;
+    final (label, fg, bg) = switch (state) {
+      'approved' => ('Approved', c.success, c.successWash),
+      'rejected' => ('Turned down', c.text2, c.inner),
+      _ => ('Waiting for your OK', c.warning, c.warningWash),
+    };
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 620),
+      decoration: BoxDecoration(color: c.box, borderRadius: BorderRadius.circular(8), border: Border.all(color: c.boxStroke)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(children: [
+            Expanded(child: Text('Plan · ${items.length} task${items.length == 1 ? '' : 's'}', style: context.t(12, w: FontWeight.w700))),
+            Pill(label, fg: fg, bg: bg),
+          ]),
+        ),
+        const Hairline(),
+        for (final (i, it) in items.indexed)
+          Hoverable(
+            radius: 0,
+            onTap: data.get<Task>(Kind.task, '${it['taskId']}') == null ? null : () => ref.read(navProvider.notifier).openTask('${it['taskId']}'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(children: [
+                SizedBox(
+                  width: 56,
+                  child: Text([
+                    '${i + 1}',
+                    if ((it['after'] as List? ?? const []).isNotEmpty) '← ${(it['after'] as List).map((a) => (a as int) + 1).join(',')}',
+                  ].join(' '), style: context.t(11, family: mono, color: c.text3)),
+                ),
+                Expanded(child: Text('${it['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(12.5))),
+                if (it['agent'] != null) ...[
+                  AgentTile(agent: data.agents.where((a) => a.name == it['agent']).firstOrNull, agentId: '${it['agent']}', size: 14),
+                  const SizedBox(width: 6),
+                  SizedBox(width: 60, child: Text('${it['agent']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: c.text2))),
+                ],
+              ]),
+            ),
+          ),
+        if (state == 'proposed') ...[
+          const Hairline(),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Wrap(spacing: 8, runSpacing: 6, children: [
+              Btn('Approve and start', kind: BtnKind.primary, small: true, onTap: () => client.call(M.plansApprove, {'planId': planId})),
+              Btn('Ask ${m.author} to change it', small: true, onTap: () async {
+                final what = await _askChange(context, m.author);
+                if (what == null || what.isEmpty) return;
+                // The PM gets it as a plan request in the thread.
+                await client.call(M.messagesPost, {
+                  'channelId': m.channelId,
+                  'body': 'Change the plan: $what',
+                  'agent': data.agents.where((a) => a.name == m.author).firstOrNull?.id ?? m.author,
+                  'mode': 'plan',
+                  'replyTo': m.id,
+                });
+                await client.call(M.plansReject, {'planId': planId});
+              }),
+              Btn('Not this one', small: true, onTap: () => client.call(M.plansReject, {'planId': planId})),
+            ]),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+Future<String?> _askChange(BuildContext context, String who) {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('What should $who change?', style: context.t(14, w: FontWeight.w600)),
+      content: SizedBox(width: 420, child: FieldInput(controller: ctrl, autofocus: true, minLines: 3, maxLines: 6, hint: 'e.g. Do the email before the admin log')),
+      actions: [
+        Btn('Cancel', onTap: () => Navigator.pop(context)),
+        Btn('Send', kind: BtnKind.primary, onTap: () => Navigator.pop(context, ctrl.text.trim())),
+      ],
+    ),
+  );
 }
 
 /// A task a message made or reports on: key, status, title, who and where.
