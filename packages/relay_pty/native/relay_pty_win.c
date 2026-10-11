@@ -75,16 +75,48 @@ static void append_arg(wchar_t **buf, size_t *len, size_t *cap, const wchar_t *a
   b[*len] = 0;
 }
 
-// A zero-byte write on the other end arrives as a successful zero-byte
-// read; only a failed read (broken pipe) means the input has closed.
+// Our stdin/stdout come from the parent (Dart), which may open its pipe
+// ends for overlapped I/O; a synchronous ReadFile/WriteFile on such a
+// handle is undefined (it can "complete" with nothing read). So both go
+// through an OVERLAPPED and wait for the result, which works whichever way
+// the handle was opened. Returns bytes moved, 0 on end/error.
+static DWORD io(HANDLE h, void *buf, DWORD n, int write) {
+  OVERLAPPED ov;
+  ZeroMemory(&ov, sizeof ov);
+  ov.hEvent = CreateEventW(NULL, TRUE, FALSE, NULL);
+  DWORD done = 0;
+  BOOL ok = write ? WriteFile(h, buf, n, &done, &ov) : ReadFile(h, buf, n, &done, &ov);
+  if (!ok && GetLastError() == ERROR_IO_PENDING) ok = GetOverlappedResult(h, &ov, &done, TRUE);
+  else if (ok) GetOverlappedResult(h, &ov, &done, TRUE);
+  CloseHandle(ov.hEvent);
+  return ok ? done : 0;
+}
+
+// A zero-byte write on the other end arrives as a zero-byte read; only a
+// failed read (broken pipe) means the input has closed.
 static int read_full(HANDLE h, void *buf, DWORD n) {
   BYTE *p = (BYTE *)buf;
   while (n > 0) {
-    DWORD got = 0;
-    if (!ReadFile(h, p, n, &got, NULL)) return 0;
-    if (got == 0) continue;
+    SetLastError(0);
+    DWORD got = io(h, p, n, 0);
+    if (got == 0) {
+      DWORD err = GetLastError();
+      if (err == ERROR_BROKEN_PIPE || err == ERROR_HANDLE_EOF || err == ERROR_NO_DATA || err == ERROR_INVALID_HANDLE) return 0;
+      if (err != 0) return 0;
+      continue;
+    }
     p += got;
     n -= got;
+  }
+  return 1;
+}
+
+static int write_all(HANDLE h, const BYTE *p, DWORD n) {
+  while (n > 0) {
+    DWORD put = io(h, (void *)p, n, 1);
+    if (put == 0) return 0;
+    p += put;
+    n -= put;
   }
   return 1;
 }
@@ -93,10 +125,11 @@ static DWORD WINAPI pump_output(LPVOID unused) {
   (void)unused;
   HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
   BYTE buf[16384];
-  DWORD got, put;
+  DWORD got;
+  // out_read is our own anonymous pipe (synchronous); stdout is the parent's.
   while (ReadFile(out_read, buf, sizeof buf, &got, NULL)) {
     if (got == 0) continue;
-    if (!WriteFile(out, buf, got, &put, NULL)) break;
+    if (!write_all(out, buf, got)) break;
   }
   return 0;
 }
@@ -206,8 +239,7 @@ int wmain(int argc, wchar_t **argv) {
     DWORD err = GetLastError();
     char msg[512];
     int n = snprintf(msg, sizeof msg, "relay-pty: could not start the command (error %lu)\r\n", err);
-    DWORD put;
-    WriteFile(GetStdHandle(STD_OUTPUT_HANDLE), msg, (DWORD)n, &put, NULL);
+    write_all(GetStdHandle(STD_OUTPUT_HANDLE), (const BYTE *)msg, (DWORD)n);
     return 127;
   }
   AssignProcessToJobObject(job, pi.hProcess);
