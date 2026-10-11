@@ -16,6 +16,7 @@ class RunSpec {
     this.addDirs = const [],
     this.autoApprove = false,
     this.readOnly = false,
+    this.disallowedTools = const [],
   });
 
   final String prompt;
@@ -48,6 +49,10 @@ class RunSpec {
   /// A question, not a change: the CLI's own editing tools are switched off
   /// where it has a way to (the workspace is read-only copies anyway).
   final bool readOnly;
+
+  /// More of the CLI's tools to switch off, by its own names (`Bash` for an
+  /// agent that may not run a shell). CLIs without such a switch ignore it.
+  final List<String> disallowedTools;
 }
 
 /// The name of Relay's MCP server in the config `mcpConfigJson` writes; its

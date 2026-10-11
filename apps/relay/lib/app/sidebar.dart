@@ -9,6 +9,7 @@ import 'package:relay_core/relay_core.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
 import '../features/project/project_dialogs.dart';
+import '../features/teams/team_page.dart';
 import '../ui/widgets.dart';
 import 'theme.dart';
 
@@ -17,7 +18,7 @@ bool inSmartList(AppPage p, Task t) => switch (p) {
   AppPage.inbox => t.data['attention'] != null || t.status == TaskStatus.review,
   AppPage.running => t.status == TaskStatus.running,
   AppPage.review => t.status == TaskStatus.review && t.data['attention'] == null,
-  AppPage.waiting => t.data['attention'] == 'permission' || t.data['attention'] == 'question',
+  AppPage.waiting => t.data['attention'] == 'permission' || t.data['attention'] == 'question' || t.data['attention'] == 'approval',
   _ => false,
 };
 
@@ -112,9 +113,24 @@ class Sidebar extends ConsumerWidget {
                 for (final r in data.reposOf(p.id)) _repoRow(places, ref, r, !onTask && nav.repoFilter == r.id),
             ],
             const SizedBox(height: 14),
-            _Header('Agents · your subscriptions', onTap: () => n.page(AppPage.agents)),
+            _Header('Agent teams', onAdd: () => showNewTeamDialog(context, ref), addTooltip: 'New agent team'),
+            for (final t in data.teams)
+              Builder(builder: (context) {
+                final live = data.all<Run>(Kind.run).any((r) => t.members.contains(r.agentId) && RunStatus.isActive(r.status));
+                return row(
+                  icon: LucideIcons.users,
+                  iconColor: c.text2,
+                  label: t.name,
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                    if (live) ...[Dot(c.success, size: 6), const SizedBox(width: 6)],
+                    Text('${t.members.length}', style: context.t(11, color: !onTask && nav.page == AppPage.team && nav.teamId == t.id ? Colors.white : c.text2)),
+                  ]),
+                  selected: !onTask && nav.page == AppPage.team && nav.teamId == t.id,
+                  onTap: () => n.team(t.id),
+                );
+              }),
             row(icon: LucideIcons.bot, iconColor: c.accentIcon, label: 'All agents', selected: !onTask && nav.page == AppPage.agents, onTap: () => n.page(AppPage.agents)),
-            for (final a in data.agents.where((a) => a.binaryPath != null))
+            for (final a in data.clis.where((a) => a.binaryPath != null))
               row(
                 leading: AgentTile(agent: a, size: 14),
                 label: a.name,
@@ -256,16 +272,17 @@ class _Tile extends StatelessWidget {
 }
 
 class _Header extends StatelessWidget {
-  const _Header(this.text, {this.onAdd, this.onTap});
+  const _Header(this.text, {this.onAdd, this.onTap, this.addTooltip = 'New project'});
   final String text;
   final VoidCallback? onAdd;
   final VoidCallback? onTap;
+  final String addTooltip;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(8, 0, 4, 4),
     child: Row(children: [
       Expanded(child: GestureDetector(onTap: onTap, child: Text(text, style: context.label))),
-      if (onAdd != null) IconBtn(LucideIcons.plus, size: 12, onTap: onAdd, tooltip: 'New project', color: context.c.text3),
+      if (onAdd != null) IconBtn(LucideIcons.plus, size: 12, onTap: onAdd, tooltip: addTooltip, color: context.c.text3),
     ]),
   );
 }

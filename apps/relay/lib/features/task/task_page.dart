@@ -159,6 +159,24 @@ class _DetailsState extends ConsumerState<_Details> {
         ),
         const SizedBox(height: 16),
       ],
+      if (t.data['attention'] == 'approval') ...[
+        Box(
+          color: c.warningWash,
+          border: c.warning,
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Waiting for your OK', style: context.t(12, w: FontWeight.w700, color: c.warning)),
+                const SizedBox(height: 4),
+                Text('${t.data['question'] ?? 'A repo it touches asks before agents work there.'}', style: context.t(13)),
+              ]),
+            ),
+            Btn('Let it start', kind: BtnKind.primary, onTap: () => _update({'approved': true, 'attention': null, 'question': null})),
+          ]),
+        ),
+        const SizedBox(height: 16),
+      ],
       if (t.data['attention'] == 'failed' && t.data['lastError'] != null) ...[
         Box(
           color: c.dangerWash,

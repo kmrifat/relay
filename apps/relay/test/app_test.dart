@@ -47,6 +47,8 @@ Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true, bool fir
     M.tasksList: (_) => tasks,
     M.agentsList: (_) => agents,
     M.rulesList: (_) => [],
+    M.teamsList: (_) => [],
+    M.teamsTemplates: (_) => [],
     M.runsList: (_) => [],
     M.runsEvents: (_) => [],
     M.workspacesList: (_) => [

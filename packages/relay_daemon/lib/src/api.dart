@@ -10,6 +10,7 @@ import 'context.dart';
 import 'repo_inspect.dart';
 import 'channels.dart';
 import 'supervisor.dart';
+import 'teams.dart';
 import 'sync_service.dart';
 import 'terminals.dart';
 import 'workspaces.dart';
@@ -25,6 +26,7 @@ class Api {
   final SyncService sync;
   final Channels channels;
   final DateTime startedAt;
+  late final teams = Teams(ctx);
 
   Store get store => ctx.store;
 
@@ -240,7 +242,8 @@ class Api {
           final where = store.get<DeviceInfo>(Kind.device, active.deviceId!)?.name ?? 'another device';
           throw RpcError(RpcError.invalidParams, '${ctx.taskKey(t)} is running on $where.');
         }
-        if (t.str('runOn') != ctx.deviceId) store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId, 'attention': null});
+        // Starting it by hand is also the OK a repo that asks first wants.
+        store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId, 'attention': null, 'approved': true});
         return (await supervisor.startRun(t.id,
                 agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?, model: p['model'] as String?, effort: p['effort'] as String?))
             .toJson();
@@ -281,9 +284,36 @@ class Api {
         return found;
       },
       M.agentsUpdate: (p) {
-        final a = store.patch<AgentProfile>(Kind.agent, _s(p, 'id'), _m(p, 'fields'));
+        final fields = _m(p, 'fields');
+        final a = store.patch<AgentProfile>(Kind.agent, _s(p, 'id'), fields);
+        // A role moved to another CLI takes that CLI's install with it.
+        if (fields.containsKey('runtime')) teams.syncRuntimes();
+        sync.publishDevice();
+        return ctx.agent(a.id)!.toJson();
+      },
+      M.agentsCreate: (p) {
+        final a = teams.createAgent(_m(p, 'fields'));
         sync.publishDevice();
         return a.toJson();
+      },
+      M.agentsDelete: (p) {
+        teams.deleteAgent(_s(p, 'id'));
+        sync.publishDevice();
+        return true;
+      },
+      M.teamsList: (_) => _json(store.list<Team>(Kind.team)..sort((a, b) => a.createdAt.compareTo(b.createdAt))),
+      M.teamsTemplates: (_) => [for (final t in teamTemplates) t.toJson()],
+      M.teamsCreate: (p) {
+        final t = teams.create(_s(p, 'name'),
+            templateId: p['template'] as String?, projectIds: ((p['projectIds'] as List?) ?? const []).cast<String>(), runtime: p['runtime'] as String?);
+        sync.publishDevice();
+        return t.toJson();
+      },
+      M.teamsUpdate: (p) => store.patch<Team>(Kind.team, _s(p, 'id'), _m(p, 'fields')).toJson(),
+      M.teamsDelete: (p) {
+        teams.delete(_s(p, 'id'), keepAgents: p['keepAgents'] == true);
+        sync.publishDevice();
+        return true;
       },
       M.rulesList: (_) => _json(store.list<RoutingRule>(Kind.rule)..sort((a, b) => a.order.compareTo(b.order))),
       M.rulesSave: (p) {
@@ -560,10 +590,11 @@ Future<List<Map<String, Object?>>> detectAgents(DaemonContext ctx) async {
   }
   // Agents no longer on PATH stay listed but can't start.
   for (final a in ctx.store.list<AgentProfile>(Kind.agent)) {
-    if (a.adapter == 'demo') continue;
+    if (a.adapter == 'demo' || a.isRole) continue;
     if (!found.any((d) => d.adapter == a.adapter) && a.binaryPath != null) {
       ctx.store.patch<AgentProfile>(Kind.agent, a.id, {'binaryPath': null});
     }
   }
+  Teams(ctx).syncRuntimes();
   return [for (final d in found) d.toJson()];
 }

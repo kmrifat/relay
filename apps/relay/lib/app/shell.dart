@@ -23,6 +23,7 @@ import '../features/project/project_page.dart';
 import '../features/settings/settings_page.dart';
 import '../features/smart/smart_list_page.dart';
 import '../features/task/new_task_sheet.dart';
+import '../features/teams/team_page.dart';
 import '../features/task/quick_find.dart';
 import '../features/task/task_page.dart';
 import '../ui/widgets.dart';
@@ -265,6 +266,7 @@ class _ShellState extends ConsumerState<Shell> {
         AppPage.agents => const FleetPage(),
         AppPage.settings => const SettingsPage(),
         AppPage.channel => nav.channelId == null ? const SettingsPage() : ChannelPage(channelId: nav.channelId!),
+        AppPage.team => nav.teamId == null ? const FleetPage() : TeamPage(teamId: nav.teamId!, agentId: nav.agentId),
       };
     }
 

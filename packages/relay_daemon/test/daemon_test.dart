@@ -275,6 +275,83 @@ void main() {
     expect(listed['efforts'], ['low', 'medium', 'high', 'xhigh', 'max']);
   });
 
+  test('teams: a product squad of role agents on one CLI, each with its model, role and limits', () async {
+    final pid = (await client.list(M.projectsList)).first['id'] as String;
+    final templates = await client.list(M.teamsTemplates);
+    expect(templates.map((t) => t['id']), containsAll(['product-squad', 'solo-builder', 'bug-crew']));
+    final team = await client.map(M.teamsCreate, {'name': 'Kitchenly squad', 'template': 'product-squad', 'projectIds': [pid], 'runtime': 'demo'});
+    final members = (team['members'] as List).cast<String>();
+    expect(members, ['pria', 'bram', 'faye', 'quinn']);
+    expect((team['edges'] as List).first, {'from': 'you', 'to': 'pria'});
+    final agents = {for (final a in await client.list(M.agentsList)) a['id']: AgentProfile(a)};
+    final pria = agents['pria']!, bram = agents['bram']!, quinn = agents['quinn']!;
+    expect([pria.runtime, pria.role, pria.model, pria.effort, pria.binaryPath], ['demo', 'Project manager', 'opus', 'high', agents['demo']!.binaryPath]);
+    expect([bram.model, quinn.model, quinn.effort], ['sonnet', 'haiku', 'low']);
+    expect(pria.can(AgentCap.editCode), isFalse);
+    expect(bram.can(AgentCap.editCode), isTrue);
+    expect(pria.efforts, isNotEmpty); // the CLI's offers came along
+
+    // The PM's prompt carries its role; its run can't edit (Claude-style flags).
+    final sup = daemon.supervisor;
+    final task = Task({'id': 'x', 'projectId': pid, 'number': 99, 'title': 'Plan refunds'});
+    final prompt = sup.buildPrompt(task, -1, '/tmp', pria);
+    expect(prompt, contains('You are Pria, Project manager'));
+    expect(prompt, contains('## Your role'));
+    expect(prompt, contains("you don't change code"));
+    expect(prompt, isNot(contains('Commit your changes')));
+
+    // A limit hit by one agent on the CLI holds back all of them.
+    sup.setLimited('bram', DateTime.now().add(const Duration(hours: 1)));
+    final limited = {for (final a in await client.list(M.agentsList)) a['id']: a['limitedUntil']};
+    expect([limited['demo'], limited['pria'], limited['quinn']].every((v) => v != null), isTrue);
+    sup.setLimited('demo', null);
+    expect((await client.list(M.agentsList)).every((a) => a['limitedUntil'] == null), isTrue);
+
+    // Two role agents on the same CLI run side by side, each with its model.
+    final repos = await client.list(M.reposList, {'projectId': pid});
+    final api = repos.firstWhere((r) => r['name'] == 'api');
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
+    final ids = <String>[];
+    for (final who in ['bram', 'quinn']) {
+      final t = await client.map(M.tasksCreate, {
+        'projectId': pid,
+        'fields': {'title': 'Role run $who', 'assigneeKind': 'agent', 'assignee': who, 'repoIds': [api['id']], 'status': 'queued'},
+      });
+      ids.add(t['id'] as String);
+    }
+    final runs = await waitFor(() async {
+      final rs = (await client.list(M.runsList)).where((r) => ids.contains(r['taskId'])).toList();
+      return rs.length == 2 ? rs : null;
+    });
+    expect({for (final r in runs) r['agentId']: r['model']}, {'bram': 'sonnet', 'quinn': 'haiku'});
+    for (final id in ids) {
+      await waitFor(() async => ((await client.map(M.tasksGet, {'id': id}))['task'] as Map)['status'] == 'review' ? true : null);
+    }
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'true'}});
+
+    // A repo that asks first holds the task until a person starts it.
+    await client.call(M.reposUpdate, {'id': api['id'], 'fields': {'agentPolicy': 'ask'}});
+    final held = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Needs an OK', 'assigneeKind': 'agent', 'assignee': 'bram', 'repoIds': [api['id']], 'status': 'queued'},
+    });
+    final waiting = await waitFor(() async {
+      final t = (await client.map(M.tasksGet, {'id': held['id']}))['task'] as Map;
+      return t['attention'] == 'approval' ? t : null;
+    });
+    expect(waiting['question'], contains('api'));
+    expect((await client.list(M.runsList)).where((r) => r['taskId'] == held['id']), isEmpty);
+    await client.call(M.reposUpdate, {'id': api['id'], 'fields': {'agentPolicy': 'auto'}});
+    await client.call(M.tasksDelete, {'id': held['id']});
+
+    // Deleting the team removes its role agents, not the CLI.
+    await client.call(M.teamsDelete, {'id': team['id']});
+    final left = (await client.list(M.agentsList)).map((a) => a['id']).toSet();
+    expect(left.intersection({'pria', 'bram', 'faye', 'quinn'}), isEmpty);
+    expect(left, contains('demo'));
+    await expectLater(client.call(M.agentsDelete, {'id': 'demo'}), throwsA(isA<RpcError>()));
+  });
+
   test('time limit stops a run; a spend cap keeps an agent from starting', () async {
     final pid = (await client.list(M.projectsList)).first['id'];
     final repos = await client.list(M.reposList, {'projectId': pid});

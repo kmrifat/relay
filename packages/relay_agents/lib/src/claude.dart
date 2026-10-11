@@ -60,7 +60,8 @@ class ClaudeCodeAdapter extends AgentAdapter {
     if (spec.resumeSessionId != null) ...['--resume', spec.resumeSessionId!],
     if (spec.mcpConfigPath != null) ...['--mcp-config', spec.mcpConfigPath!, '--allowedTools', 'mcp__${relayMcpServer}__*'],
     for (final dir in spec.addDirs) ...['--add-dir', dir],
-    if (spec.readOnly) ...['--disallowedTools', 'Edit', 'Write', 'MultiEdit', 'NotebookEdit'],
+    if (spec.readOnly || spec.disallowedTools.isNotEmpty)
+      ...['--disallowedTools', if (spec.readOnly) ...['Edit', 'Write', 'MultiEdit', 'NotebookEdit'], ...spec.disallowedTools],
     if (spec.autoApprove)
       ...['--permission-mode', 'bypassPermissions']
     else

@@ -44,7 +44,8 @@ class _FleetPageState extends ConsumerState<FleetPage> {
   Widget build(BuildContext context) {
     final c = context.c;
     final data = ref.watch(dataProvider);
-    final agents = data.agents;
+    // The CLIs; role agents are on their team's page.
+    final agents = data.clis;
     final installed = agents.where((a) => a.binaryPath != null).toList();
     final missing = agents.where((a) => a.binaryPath == null).toList();
     final active = data.all<Run>(Kind.run).where((r) => RunStatus.isActive(r.status)).length;

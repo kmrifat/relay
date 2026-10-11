@@ -88,6 +88,7 @@ class Supervisor {
         if (t.data['activeRunId'] != null) continue;
         if (!_runsHere(t)) continue;
         if (!_ready(t)) continue;
+        if (_needsApproval(t)) continue;
         final agentId = pickAgent(t);
         if (agentId == null) continue;
         final agent = ctx.agent(agentId);
@@ -141,8 +142,29 @@ class Supervisor {
     final until = a.limitedUntil;
     if (until == null) return false;
     if (until.isBefore(DateTime.now())) {
-      ctx.store.patch<AgentProfile>(Kind.agent, a.id, {'limitedUntil': null});
+      setLimited(a.id, null);
       return false;
+    }
+    return true;
+  }
+
+  /// A plan limit belongs to the CLI's account, so it holds back every
+  /// agent running on that CLI, and clears for all of them.
+  void setLimited(String agentId, DateTime? until) {
+    final runtime = ctx.agent(agentId)?.runtimeId ?? agentId;
+    for (final a in ctx.store.list<AgentProfile>(Kind.agent).where((a) => a.runtimeId == runtime)) {
+      ctx.store.patch<AgentProfile>(Kind.agent, a.id, {'limitedUntil': until?.toUtc().toIso8601String()});
+    }
+  }
+
+  /// A repo set to "ask before agents work here" holds a task until a
+  /// person says yes (Approve on the task, or starting it by hand).
+  bool _needsApproval(Task t) {
+    if (t.data['approved'] == true) return false;
+    final asks = ctx.touchedRepos(t).where((r) => r.agentPolicy == 'ask').toList();
+    if (asks.isEmpty) return false;
+    if (t.data['attention'] != 'approval') {
+      ctx.store.patch<Task>(Kind.task, t.id, {'attention': 'approval', 'question': '${asks.map((r) => r.name).join(', ')} ask before agents work there.'});
     }
     return true;
   }
@@ -191,7 +213,8 @@ class Supervisor {
   }
 
   String? _leastBusyAgent() {
-    final agents = ctx.store.list<AgentProfile>(Kind.agent).where((a) => a.enabled && a.binaryPath != null && !_limited(a)).toList();
+    // Role agents take the work their team gives them, not whatever is free.
+    final agents = ctx.store.list<AgentProfile>(Kind.agent).where((a) => a.enabled && a.binaryPath != null && !a.isRole && !_limited(a)).toList();
     if (agents.isEmpty) return null;
     agents.sort((a, b) => (activeRuns(a.id) / a.slots).compareTo(activeRuns(b.id) / b.slots));
     return agents.first.id;
@@ -274,7 +297,8 @@ class Supervisor {
         argsTemplate: (agent.data['argsTemplate'] as List?)?.cast<String>(),
         resumeSessionId: extraPrompt != null && previous.isNotEmpty ? previous.last.sessionId : null,
         autoApprove: !ctx.boolSetting('askBeforeShell', true),
-        readOnly: task.str('ask') != null,
+        readOnly: task.str('ask') != null || !agent.can(AgentCap.editCode),
+        disallowedTools: [if (!agent.can(AgentCap.runShell)) 'Bash'],
       ));
     } catch (e) {
       await _finish(run.id, RunStatus.failed, error: 'Could not start ${agent.name}: $e');
@@ -318,9 +342,14 @@ class Supervisor {
     final touched = ctx.touchedRepos(task);
     final others = ctx.reposOf(task.projectId).where((r) => !touched.contains(r)).toList();
     final b = StringBuffer()
-      ..writeln('You are ${agent.name}, working on task $key in project "${project.name}", assigned through Relay.')
-      ..writeln()
-      ..writeln('# ${task.title}');
+      ..writeln('You are ${agent.name}${agent.role.isEmpty ? '' : ', ${agent.role}'}, working on task $key in project "${project.name}", assigned through Relay.')
+      ..writeln();
+    if (agent.responsibilities.trim().isNotEmpty || !agent.can(AgentCap.editCode)) {
+      b..writeln('## Your role')..writeln(agent.responsibilities.trim());
+      if (!agent.can(AgentCap.editCode)) b.writeln('In this role you don\'t change code: read, decide, and hand work on.');
+      b.writeln();
+    }
+    b.writeln('# ${task.title}');
     if (task.brief.trim().isNotEmpty) b..writeln()..writeln(task.brief.trim());
     if (task.doneWhen.isNotEmpty) {
       b..writeln()..writeln('## Done when');
@@ -373,6 +402,11 @@ class Supervisor {
         ..writeln(ask == 'plan'
             ? 'Reply with a plan: the steps in order, which repo each touches, and the tasks you would make, each with a title and "done when" checks.'
             : 'Reply with the answer in your final message; it is posted in the channel. Keep it short and point to files by path.');
+    } else if (!agent.can(AgentCap.editCode)) {
+      b
+        ..writeln()
+        ..writeln('## When you finish')
+        ..writeln('Reply with a two-sentence summary of what you decided and who you handed work to.');
     } else {
       b
         ..writeln()
@@ -452,7 +486,7 @@ class Supervisor {
       return;
     }
     if (limitedUntil != null) {
-      ctx.store.patch<AgentProfile>(Kind.agent, run.agentId, {'limitedUntil': limitedUntil.toUtc().toIso8601String()});
+      setLimited(run.agentId, limitedUntil);
       ctx.notice('${ctx.agent(run.agentId)?.name} hit its limit until ${limitedUntil.toLocal()}', level: 'warning');
     }
     final ok = failure == null && (turnDone || code == 0);

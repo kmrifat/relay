@@ -14,11 +14,12 @@ abstract final class Kind {
   static const device = 'device';
   static const channel = 'channel';
   static const message = 'message';
+  static const team = 'team';
 
-  static const all = [project, repo, task, comment, run, agent, change, rule, device, channel, message];
+  static const all = [project, repo, task, comment, run, agent, change, rule, device, channel, message, team];
 
-  /// Kinds shared with the team. Agent profiles and routing rules describe
-  /// this device's CLIs and preferences, so they stay local.
+  /// Kinds shared with the team. Agent profiles, agent teams and routing
+  /// rules describe this device's CLIs and preferences, so they stay local.
   static const synced = {project, repo, task, comment, run, change, device, channel, message};
 }
 
@@ -88,6 +89,7 @@ Entity entityFrom(String kind, Map<String, Object?> data) => switch (kind) {
   Kind.device => DeviceInfo(data),
   Kind.channel => Channel(data),
   Kind.message => Message(data),
+  Kind.team => Team(data),
   _ => throw ArgumentError('Unknown kind $kind'),
 };
 
@@ -336,7 +338,41 @@ class Run extends Entity {
   String? get effort => str('effort');
 }
 
+/// What an agent may do (design P02 "Allowed to"). The MCP tools and the
+/// CLI's own tool switches follow them.
+abstract final class AgentCap {
+  static const editCode = 'editCode';
+  static const runShell = 'runShell';
+  static const createTasks = 'createTasks';
+  static const assign = 'assign';
+  static const postChannel = 'postChannel';
+  static const message = 'message';
+  static const merge = 'merge';
+
+  static const all = [editCode, runShell, createTasks, assign, postChannel, message, merge];
+
+  /// An agent nobody has set up: it codes, and files follow-ups as before.
+  static const defaults = {editCode, runShell, createTasks, message};
+
+  static String label(String c) => switch (c) {
+    editCode => 'Edit code',
+    runShell => 'Run shell',
+    createTasks => 'Create tasks',
+    assign => 'Assign teammates',
+    postChannel => 'Post in channels',
+    message => 'Message agents',
+    merge => 'Merge PRs',
+    _ => c,
+  };
+}
+
 /// A coding-agent CLI the user has on this device, and how Relay uses it.
+///
+/// It is either the CLI itself (id = adapter id, found by detection), or a
+/// role on top of one ([runtime] names that CLI's profile): its own name,
+/// role, model, effort, responsibilities and capabilities, sharing the
+/// CLI's install and its plan limits. Detection copies the CLI's path,
+/// version and offers onto its role agents.
 class AgentProfile extends Entity {
   const AgentProfile(super.data);
   @override
@@ -370,6 +406,47 @@ class AgentProfile extends Entity {
 
   /// When the plan's limit resets after being hit (ISO time), if known.
   DateTime? get limitedUntil => _date(data['limitedUntil']);
+
+  /// For a role agent: the CLI profile it runs on (e.g. `claude-code`).
+  String? get runtime => str('runtime');
+  bool get isRole => runtime != null;
+
+  /// The profile whose plan and limits this agent uses.
+  String get runtimeId => runtime ?? id;
+
+  /// "Project manager", "Sr backend dev"; empty for a plain CLI.
+  String get role => str('role') ?? '';
+
+  /// Added to every run's prompt.
+  String get responsibilities => str('responsibilities') ?? '';
+  String? get teamId => str('teamId');
+
+  Set<String> get caps => data['caps'] is List ? strings('caps').toSet() : AgentCap.defaults;
+  bool can(String cap) => caps.contains(cap);
+}
+
+/// A group of agents that work on some projects together (design P02):
+/// who hands work to whom, and whether its plans wait for your OK.
+class Team extends Entity {
+  const Team(super.data);
+  @override
+  String get kind => Kind.team;
+
+  String get name => str('name') ?? '';
+  String get color => str('color') ?? '#0A64D8';
+
+  /// Agent ids, in the order the team page lists them.
+  List<String> get members => strings('members');
+  List<String> get projectIds => strings('projectIds');
+
+  /// Handoffs: `{from, to}` agent ids; `you` is the person.
+  List<Map<String, Object?>> get edges => maps('edges');
+
+  /// The PM's plan waits for your OK before its tasks start (M14).
+  bool get planApproval => boolOr('planApproval', true);
+
+  /// The template it was made from, if any.
+  String? get template => str('template');
 }
 
 /// One repo's part of a task's change set.

@@ -33,6 +33,7 @@ Widget? attentionBadge(BuildContext context, Task t) {
   return switch (a) {
     'permission' => Pill('Needs permission', fg: c.warning, bg: c.warningWash),
     'question' => Pill('Asks you', fg: c.warning, bg: c.warningWash),
+    'approval' => Pill('Needs your OK', fg: c.warning, bg: c.warningWash),
     'failed' => Pill('Failed', fg: c.danger, bg: c.dangerWash),
     _ => null,
   };
@@ -165,6 +166,9 @@ Future<void> taskMenu(BuildContext context, WidgetRef ref, Task t, Offset at) as
   }
 }
 
+/// "Pria · Project manager" for a role agent, the CLI's name otherwise.
+String agentLabel(AgentProfile a) => a.role.isEmpty ? a.name : '${a.name} · ${a.role}';
+
 /// Who does [t]: routing picks, a named agent, or me. Shared by the task
 /// page and the board's A key.
 Future<void> assignMenu(BuildContext context, WidgetRef ref, Task t, Offset at) async {
@@ -172,7 +176,7 @@ Future<void> assignMenu(BuildContext context, WidgetRef ref, Task t, Offset at) 
   final client = ref.read(clientProvider);
   final choice = await showMenuAt<String>(context, at, [
     ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
-    for (final a in data.agents.where((a) => a.binaryPath != null)) ('agent:${a.id}', a.name, LucideIcons.bot),
+    for (final a in data.agents.where((a) => a.binaryPath != null)) ('agent:${a.id}', agentLabel(a), a.isRole ? LucideIcons.userRound : LucideIcons.bot),
     ('me', 'Me', LucideIcons.user),
   ]);
   if (choice == null) return;

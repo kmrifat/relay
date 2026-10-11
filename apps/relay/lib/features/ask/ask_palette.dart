@@ -16,13 +16,13 @@ import '../channel/channel_page.dart' show ChannelAgent, channelAgents;
 /// product's channel with the agent's model, effort and what to do, so
 /// the answer (or the task it makes) is where the team can see it. Live
 /// runs and open questions are a keystroke away too.
-Future<void> showAskPalette(BuildContext context, WidgetRef ref) async {
+Future<void> showAskPalette(BuildContext context, WidgetRef ref, {String? agentId}) async {
   final data = ref.read(dataProvider);
   if (data.projects.isEmpty) return;
   await showDialog<void>(
     context: context,
     barrierColor: Colors.black54,
-    builder: (_) => const Align(alignment: Alignment(0, -0.55), child: _AskPalette()),
+    builder: (_) => Align(alignment: const Alignment(0, -0.55), child: _AskPalette(agentId: agentId)),
   );
 }
 
@@ -46,7 +46,10 @@ class _AnswerItem extends _Item {
 }
 
 class _AskPalette extends ConsumerStatefulWidget {
-  const _AskPalette();
+  const _AskPalette({this.agentId});
+
+  /// Starts with this agent chosen (the team page's Ask).
+  final String? agentId;
   @override
   ConsumerState<_AskPalette> createState() => _AskPaletteState();
 }
@@ -67,6 +70,12 @@ class _AskPaletteState extends ConsumerState<_AskPalette> {
     final data = ref.read(dataProvider);
     final nav = ref.read(navProvider);
     projectId = nav.projectId != null && data.get<Project>(Kind.project, nav.projectId) != null ? nav.projectId! : data.projects.first.id;
+    // A team's agent asks about the team's first project.
+    final agent = data.get<AgentProfile>(Kind.agent, widget.agentId);
+    final team = agent == null ? null : data.teamOf(agent);
+    if (team != null && team.projectIds.isNotEmpty && !team.projectIds.contains(projectId)) projectId = team.projectIds.first;
+    final i = _items(data).indexWhere((x) => x is _AgentItem && x.agent.id == widget.agentId);
+    if (i >= 0) sel = i;
     text.addListener(() => setState(() {}));
   }
 

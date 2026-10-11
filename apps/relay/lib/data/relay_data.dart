@@ -60,6 +60,11 @@ class DataSnapshot {
 
   List<Project> get projects => all<Project>(Kind.project).toList()..sort((a, b) => a.position.compareTo(b.position));
   List<AgentProfile> get agents => all<AgentProfile>(Kind.agent).toList()..sort((a, b) => a.name.compareTo(b.name));
+
+  /// The CLIs found on this computer (not the role agents on top of them).
+  List<AgentProfile> get clis => agents.where((a) => !a.isRole).toList();
+  List<Team> get teams => all<Team>(Kind.team).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  Team? teamOf(AgentProfile a) => a.teamId == null ? null : get<Team>(Kind.team, a.teamId);
   List<Repo> reposOf(String projectId) => all<Repo>(Kind.repo).where((r) => r.projectId == projectId).toList()
     ..sort((a, b) {
       final s = a.mergeStep.compareTo(b.mergeStep);
@@ -125,10 +130,19 @@ class DataNotifier extends Notifier<DataSnapshot> {
       Kind.run: M.runsList,
       Kind.device: M.devicesList,
       Kind.channel: M.channelsList,
+      Kind.team: M.teamsList,
     };
     final next = <String, Map<String, Entity>>{for (final k in Kind.all) k: {}};
     for (final e in kinds.entries) {
-      for (final j in await client.list(e.value)) {
+      final List<Map<String, Object?>> items;
+      try {
+        items = await client.list(e.value);
+      } on RpcError catch (err) {
+        // An older relayd still running (teams came in 0.2): show the rest.
+        if (err.code == RpcError.methodNotFound) continue;
+        rethrow;
+      }
+      for (final j in items) {
         next[e.key]![j['id'] as String] = entityFrom(e.key, _withLocal(e.key, j));
       }
     }

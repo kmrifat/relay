@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 enum ProjectView { board, list, timeline, git, code, repos }
 
 /// Smart lists in the sidebar, plus the non-project pages.
-enum AppPage { project, inbox, running, review, waiting, agents, settings, channel }
+enum AppPage { project, inbox, running, review, waiting, agents, settings, channel, team }
 
 class NavState {
   const NavState({
@@ -14,6 +14,8 @@ class NavState {
     this.taskId,
     this.repoFilter,
     this.channelId,
+    this.teamId,
+    this.agentId,
   });
 
   final AppPage page;
@@ -29,7 +31,11 @@ class NavState {
   /// The open channel (AppPage.channel).
   final String? channelId;
 
-  NavState copyWith({AppPage? page, String? projectId, ProjectView? view, String? taskId, bool clearTask = false, String? repoFilter, bool clearRepo = false, String? channelId}) =>
+  /// The open team (AppPage.team) and the agent shown in its inspector.
+  final String? teamId;
+  final String? agentId;
+
+  NavState copyWith({AppPage? page, String? projectId, ProjectView? view, String? taskId, bool clearTask = false, String? repoFilter, bool clearRepo = false, String? channelId, String? teamId, String? agentId}) =>
       NavState(
         page: page ?? this.page,
         projectId: projectId ?? this.projectId,
@@ -37,6 +43,8 @@ class NavState {
         taskId: clearTask ? null : (taskId ?? this.taskId),
         repoFilter: clearRepo ? null : (repoFilter ?? this.repoFilter),
         channelId: channelId ?? this.channelId,
+        teamId: teamId ?? this.teamId,
+        agentId: agentId ?? this.agentId,
       );
 }
 
@@ -58,7 +66,8 @@ class NavNotifier extends Notifier<NavState> {
   }
 
   static bool _same(NavState a, NavState b) =>
-      a.page == b.page && a.projectId == b.projectId && a.view == b.view && a.taskId == b.taskId && a.repoFilter == b.repoFilter && a.channelId == b.channelId;
+      a.page == b.page && a.projectId == b.projectId && a.view == b.view && a.taskId == b.taskId && a.repoFilter == b.repoFilter && a.channelId == b.channelId &&
+      a.teamId == b.teamId && a.agentId == b.agentId;
 
   bool get canGoBack => _back.isNotEmpty;
   bool get canGoForward => _forward.isNotEmpty;
@@ -80,6 +89,10 @@ class NavNotifier extends Notifier<NavState> {
   void view(ProjectView v) => _go(state.copyWith(page: AppPage.project, view: v, clearTask: true));
   void page(AppPage p) => _go(state.copyWith(page: p, clearTask: true));
   void channel(String id) => _go(state.copyWith(page: AppPage.channel, channelId: id, clearTask: true));
+
+  /// A team's page, with [agentId] (a member) in its inspector.
+  void team(String id, {String? agentId}) => _go(NavState(
+        page: AppPage.team, projectId: state.projectId, view: state.view, channelId: state.channelId, teamId: id, agentId: agentId));
   void openTask(String id) => _go(state.copyWith(taskId: id));
   void closeTask() => _go(state.copyWith(clearTask: true));
   void repoFilter(String? repoId) => _go(repoId == null ? state.copyWith(clearRepo: true) : state.copyWith(repoFilter: repoId, view: ProjectView.board, page: AppPage.project));

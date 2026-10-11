@@ -11,6 +11,7 @@ import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
 import '../agents/model_picker.dart';
+import 'task_bits.dart';
 
 Future<void> showNewTaskSheet(BuildContext context, WidgetRef ref, {String? status, String? brief}) async {
   final data = ref.read(dataProvider);
@@ -241,7 +242,7 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                     final box = context.findRenderObject() as RenderBox;
                     final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
                       ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
-                      for (final a in agents) (a.id, a.name, LucideIcons.bot),
+                      for (final a in agents) (a.id, agentLabel(a), a.isRole ? LucideIcons.userRound : LucideIcons.bot),
                       for (final (d, a) in shared) ('dev:${d.id}:${a['id']}', '${a['name']} · ${d.person.isEmpty ? d.name : d.person}', LucideIcons.monitorSmartphone),
                       ('me', 'Me', LucideIcons.user),
                     ]);
@@ -349,7 +350,7 @@ class _NewTaskState extends ConsumerState<_NewTask> {
           onTap: () async {
             final box = context.findRenderObject() as RenderBox;
             final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
-              for (final a in agents) ('agent:${a.id}', a.name, LucideIcons.bot),
+              for (final a in agents) ('agent:${a.id}', agentLabel(a), a.isRole ? LucideIcons.userRound : LucideIcons.bot),
               ('person', 'A person ($userName)', LucideIcons.user),
             ]);
             if (v == null) return;

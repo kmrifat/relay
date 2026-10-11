@@ -41,6 +41,9 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `permissions.answer` | `{runId, requestId, answer}` (`allow_once`, `allow_always`, `deny`) | true |
 | `agents.list / detect / update` | — / — / `{id, fields}` | agents with `active` and `today` usage; `models` and `efforts` are what the CLI offers (refreshed at detection), `model` and `effort` the agent's defaults |
 | `agents.message` | `{taskId, from, to, text}` | true (agent-to-agent) |
+| `agents.create / delete` | `{fields}` / `{id}` | a role agent on a CLI: `fields.runtime` names the CLI's profile; it gets the CLI's path, version, offers and limits. Delete refuses a CLI |
+| `teams.list / templates` | — | teams `{name, members, projectIds, edges: [{from, to}], planApproval}`; templates `{id, name, summary, roles}` |
+| `teams.create / update / delete` | `{name, template?, projectIds?, runtime?}` / `{id, fields}` / `{id, keepAgents?}` | `create` makes one role agent per template role on the best installed CLI (or `runtime`); `delete` removes its agents unless `keepAgents` |
 | `rules.list / save / delete` | — / `{id?, fields}` / `{id}` | rules |
 | `settings.get / set` | — / `{values}` | settings |
 | `changes.list` | `{taskId}` | change entries with their repo |
