@@ -8,6 +8,7 @@ import 'package:relay/data/relay_data.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import 'app_test.dart' show app, fakeRelayd, settleUntil;
+import 'keyboard_test.dart' show mod;
 
 void main() {
   testWidgets('mission control: products with their team lanes, needs you answered inline, team chatter', (tester) async {
@@ -36,9 +37,7 @@ void main() {
     }));
     await tester.pumpWidget(app(client!));
     await settleUntil(tester, find.text('Share a recipe with a link'));
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.digit0);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await mod(tester, LogicalKeyboardKey.digit0); // ⌘ on the Mac, Ctrl elsewhere
     await settleUntil(tester, find.text('Team chatter'));
 
     expect(find.textContaining('Goal · Meal plans by Friday'), findsOneWidget);

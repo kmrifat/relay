@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:relay/app/commands.dart';
 import 'package:relay/app/theme.dart';
+import 'package:relay/ui/platform.dart';
 import 'package:relay/data/relay_data.dart';
 import 'package:relay/ui/split.dart';
 import 'package:relay_protocol/relay_protocol.dart';
@@ -84,22 +85,35 @@ void main() {
     expect(terminalFocused, isTrue);
     expect(typingFocused, isTrue);
 
-    // ⌘K still opens quick find with the terminal focused.
-    await mod(tester, LogicalKeyboardKey.keyK);
-    await tester.pumpAndSettle();
-    expect(find.text('Find a task by key, title or tag'), findsOneWidget);
-    // While it is open, ⌘K doesn't open a second one.
-    await mod(tester, LogicalKeyboardKey.keyK);
-    await tester.pumpAndSettle();
-    expect(find.text('Find a task by key, title or tag'), findsOneWidget);
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pumpAndSettle();
+    if (Desk.isMac) {
+      // ⌘K still opens quick find with the terminal focused.
+      await mod(tester, LogicalKeyboardKey.keyK);
+      await tester.pumpAndSettle();
+      expect(find.text('Find a task by key, title or tag'), findsOneWidget);
+      // While it is open, ⌘K doesn't open a second one.
+      await mod(tester, LogicalKeyboardKey.keyK);
+      await tester.pumpAndSettle();
+      expect(find.text('Find a task by key, title or tag'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+    } else {
+      // Off the Mac the commands use Ctrl, and Ctrl+K belongs to the shell.
+      await mod(tester, LogicalKeyboardKey.keyK);
+      await tester.pumpAndSettle();
+      expect(find.text('Find a task by key, title or tag'), findsNothing);
+      expect(terminalFocused, isTrue);
+    }
 
     // ⌥ digits are typing while the terminal has focus: no view switch.
     await alt(tester, LogicalKeyboardKey.digit2);
     expect(find.byType(TerminalView), findsOneWidget);
-    // ⌘Esc leaves the terminal; then ⌥ digits switch views.
-    await mod(tester, LogicalKeyboardKey.escape);
+    // ⌘Esc (F6 off the Mac) leaves the terminal; then ⌥ digits switch views.
+    if (Desk.isMac) {
+      await mod(tester, LogicalKeyboardKey.escape);
+    } else {
+      await tester.sendKeyEvent(LogicalKeyboardKey.f6);
+      await tester.pump();
+    }
     expect(terminalFocused, isFalse);
 
     // ⌥2 → List, ⌘[ back to Code, ⌘] forward to List again.

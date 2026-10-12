@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import 'app_test.dart' show app, fakeRelayd, settleUntil;
+import 'keyboard_test.dart' show mod;
 
 void main() {
   testWidgets('composer: @ picks an agent, its model, effort, mode and repos go with the message', (tester) async {
@@ -86,9 +87,7 @@ void main() {
     }));
     await tester.pumpWidget(app(client!));
     await settleUntil(tester, find.text('Share a recipe with a link'));
-    await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
-    await tester.sendKeyEvent(LogicalKeyboardKey.keyJ);
-    await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+    await mod(tester, LogicalKeyboardKey.keyJ); // ⌘ on the Mac, Ctrl elsewhere
     await tester.pumpAndSettle();
     expect(find.textContaining('AGENTS'), findsOneWidget);
     expect(find.text('Answers go to #kitchenly'), findsOneWidget);
