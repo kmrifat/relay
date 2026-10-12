@@ -19,6 +19,7 @@ class MacSection extends ConsumerStatefulWidget {
 class _MacSectionState extends ConsumerState<MacSection> {
   String? login;
   bool canUpdate = false;
+  bool autoCheck = false;
   bool menuBar = true;
   String? error;
 
@@ -31,10 +32,12 @@ class _MacSectionState extends ConsumerState<MacSection> {
   Future<void> _load() async {
     final l = await SystemBridge.instance.loginItem();
     final u = await SystemBridge.instance.canUpdate();
+    final a = u && await SystemBridge.instance.autoCheck();
     if (!mounted) return;
     setState(() {
       login = l;
       canUpdate = u;
+      autoCheck = a;
     });
   }
 
@@ -91,6 +94,13 @@ class _MacSectionState extends ConsumerState<MacSection> {
             ),
             Btn('Check for Updates…', small: true, onTap: canUpdate ? () => SystemBridge.instance.checkForUpdates() : null),
           ]), labelWidth: 110),
+          if (canUpdate) ...[
+            const Hairline(),
+            toggle('Check daily', 'Look for a new Relay once a day. It always asks before installing.', autoCheck, (v) {
+              setState(() => autoCheck = v);
+              SystemBridge.instance.setAutoCheck(v);
+            }),
+          ],
           ],
         ]),
       ),

@@ -3,11 +3,13 @@ import FlutterMacOS
 import Sparkle
 
 /// In-place updates with Sparkle 2 (M9-03), the way DevVault does it
-/// (its ADR-0007): Sparkle runs only when the person chooses Check for
-/// Updates…, then fetches the appcast, checks the EdDSA signature and the
-/// Developer ID team, asks, and restarts Relay.
+/// (its ADR-0007). Sparkle starts with the app and looks for an update once
+/// a day (Info.plist), or when the person chooses Check for Updates…. It
+/// fetches the appcast, checks the EdDSA signature and the Developer ID
+/// team, asks, and restarts Relay; it never installs without asking.
 ///
-/// Channel `relay/updater`: `isAvailable` → Bool, `check` → nil.
+/// Channel `relay/updater`: `isAvailable` → Bool, `check` → nil,
+/// `autoCheck` → Bool, `setAutoCheck {on}` → nil.
 final class AppUpdater: NSObject {
   private let channel: FlutterMethodChannel
   private var controller: SPUStandardUpdaterController?
@@ -15,6 +17,10 @@ final class AppUpdater: NSObject {
   init(messenger: FlutterBinaryMessenger) {
     channel = FlutterMethodChannel(name: "relay/updater", binaryMessenger: messenger)
     super.init()
+    // Started now so the daily check runs; a build without a key can't.
+    if AppUpdater.isConfigured {
+      controller = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    }
     channel.setMethodCallHandler { [weak self] call, result in
       self?.handle(call, result: result)
     }
@@ -42,6 +48,12 @@ final class AppUpdater: NSObject {
       let c = controller ?? SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
       controller = c
       c.checkForUpdates(nil)
+      result(nil)
+    case "autoCheck":
+      result(controller?.updater.automaticallyChecksForUpdates ?? false)
+    case "setAutoCheck":
+      let on = (call.arguments as? [String: Any])?["on"] as? Bool ?? true
+      controller?.updater.automaticallyChecksForUpdates = on
       result(nil)
     default:
       result(FlutterMethodNotImplemented)
