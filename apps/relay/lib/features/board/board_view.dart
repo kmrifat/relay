@@ -54,7 +54,7 @@ class _BoardViewState extends ConsumerState<BoardView> {
   // Saved per product (relayd ui `board.<project>`).
   Lanes lanes = Lanes.epic;
   bool compact = false;
-  bool doneFolded = true;
+  bool doneFolded = false;
   final who = <String>{};
   String? tag;
   bool needsMe = false;
@@ -101,7 +101,7 @@ class _BoardViewState extends ConsumerState<BoardView> {
       setState(() {
         lanes = Lanes.values.where((l) => l.name == o['lanes']).firstOrNull ?? lanes;
         compact = o['compact'] == true;
-        doneFolded = o['doneFolded'] != false;
+        doneFolded = o['doneFolded'] == true;
       });
     } on Object catch (_) {
       // Defaults.
@@ -424,10 +424,14 @@ class _BoardViewState extends ConsumerState<BoardView> {
     return Row(children: [
       Icon(statusIcon(s), size: 13, color: statusColor(context, s)),
       const SizedBox(width: 6),
-      Flexible(child: Text(TaskStatus.label(s), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(12, w: FontWeight.w600))),
-      const SizedBox(width: 6),
-      Text(slots > 0 ? '$count / $slots' : '$count', style: context.t(11, color: c.text3)),
-      const Spacer(),
+      // Takes the rest of the row, so the buttons sit at its right edge.
+      Expanded(
+        child: Row(children: [
+          Flexible(child: Text(TaskStatus.label(s), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(12, w: FontWeight.w600))),
+          const SizedBox(width: 6),
+          Text(slots > 0 ? '$count / $slots' : '$count', style: context.t(11, color: c.text3)),
+        ]),
+      ),
       if (s == TaskStatus.backlog || s == TaskStatus.queued)
         IconBtn(LucideIcons.plus, size: 13, tooltip: 'New task', onTap: () => showNewTaskSheet(context, ref, status: s)),
       if (s == TaskStatus.done)
@@ -703,23 +707,34 @@ class _Cell extends ConsumerWidget {
   }
 }
 
+/// Done, folded to a strip: its name and count read sideways; click to open.
 class _FoldedDone extends StatelessWidget {
   const _FoldedDone({required this.count, required this.onTap});
   final int count;
   final VoidCallback onTap;
   @override
-  Widget build(BuildContext context) => Tooltip(
-    message: 'Show Done',
-    child: Pressable(
-      onTap: onTap,
-      builder: (context, hover, focus) => Container(
-        height: 40,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(color: hover ? context.c.inner : context.c.bar, borderRadius: BorderRadius.circular(7)),
-        child: Text('$count', style: context.t(11, color: context.c.text3)),
+  Widget build(BuildContext context) {
+    final c = context.c;
+    return Tooltip(
+      message: 'Show Done',
+      child: Pressable(
+        onTap: onTap,
+        builder: (context, hover, focus) => Container(
+          padding: const EdgeInsets.symmetric(vertical: 10),
+          foregroundDecoration: focusRing(context, focus, 7),
+          decoration: BoxDecoration(color: hover ? c.inner : c.bar, borderRadius: BorderRadius.circular(7)),
+          child: Column(children: [
+            Icon(LucideIcons.chevronsLeft, size: 13, color: hover ? c.text : c.text2),
+            const SizedBox(height: 8),
+            RotatedBox(
+              quarterTurns: 1,
+              child: Text('Done · $count', style: context.t(11.5, w: FontWeight.w600, color: hover ? c.text : c.text2)),
+            ),
+          ]),
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 class _DraggableCard extends StatelessWidget {

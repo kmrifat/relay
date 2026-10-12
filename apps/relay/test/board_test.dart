@@ -31,8 +31,15 @@ void main() {
     expect(find.text('epic · 0 of 1 done'), findsOneWidget);
     expect(find.text('No epic'), findsOneWidget);
     expect(find.text('1/2'), findsOneWidget); // done-when on the card
-    // Done starts folded.
+    // Done starts open; folded, it is a strip that opens again.
+    expect(find.text('Old thing'), findsOneWidget);
+    await tester.tap(find.byTooltip('Fold Done'));
+    await tester.pumpAndSettle();
     expect(find.text('Old thing'), findsNothing);
+    expect(find.text('Done · 1'), findsWidgets);
+    await tester.tap(find.text('Done · 1').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Old thing'), findsOneWidget);
     expect(find.text('Ready'), findsOneWidget);
     expect(find.text('In progress'), findsOneWidget);
 

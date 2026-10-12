@@ -174,6 +174,7 @@ class _ShellState extends ConsumerState<Shell> {
       Cmd.keyboardMap: () => showKeyboardMap(context),
       for (var i = 0; i < ProjectView.values.length; i++) Cmd.view(i): () => view(ProjectView.values[i]),
       Cmd.newTask: () => showNewTaskSheet(context, ref),
+      Cmd.newProject: () => showNewProjectDialog(context, ref),
       Cmd.toggleTerminal: () async {
         final id = projectId();
         if (id == null) return;
