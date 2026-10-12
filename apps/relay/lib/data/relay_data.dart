@@ -5,6 +5,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import 'daemon_launcher.dart';
+import 'daemon_upgrade.dart';
 
 enum ConnStatus { connecting, connected, failed }
 
@@ -15,10 +16,23 @@ class ConnState {
   final String? message;
 }
 
-/// The connection to relayd. Reconnects (and restarts relayd) on loss.
+/// The connection to relayd. Reconnects (and restarts relayd) on loss, and
+/// replaces a relayd older than this app (daemon_upgrade.dart).
 class ConnectionNotifier extends Notifier<ConnState> {
+  /// What restarting relayd touches; tests swap in a fake.
+  static DaemonHost Function() host = () => SystemDaemonHost(DaemonLauncher());
+
+  /// Set while this app stops relayd on purpose: no reconnect for that.
+  bool _replacing = false;
+
+  /// Once per app session, so a relayd that comes back old isn't restarted
+  /// again and again.
+  bool _upgraded = false;
+  Timer? _waitForRuns;
+
   @override
   ConnState build() {
+    ref.onDispose(() => _waitForRuns?.cancel());
     Future.microtask(connect);
     return const ConnState(ConnStatus.connecting, message: 'Connecting to relayd…');
   }
@@ -27,18 +41,103 @@ class ConnectionNotifier extends Notifier<ConnState> {
     state = const ConnState(ConnStatus.connecting, message: 'Connecting to relayd…');
     try {
       final client = await DaemonLauncher().connect(onStatus: (m) => state = ConnState(ConnStatus.connecting, message: m));
-      state = ConnState(ConnStatus.connected, client: client);
-      unawaited(client.done.then((_) {
-        if (state.client == client) {
-          state = const ConnState(ConnStatus.connecting, message: 'relayd went away, reconnecting…');
-          Future<void>.delayed(const Duration(seconds: 1), connect);
-        }
-      }));
+      _connected(client);
+      if (!isMobile) unawaited(_checkVersion(client));
     } catch (e) {
       state = ConnState(ConnStatus.failed, message: '$e');
     }
   }
+
+  void _connected(RelayClient client) {
+    state = ConnState(ConnStatus.connected, client: client);
+    unawaited(client.done.then((_) {
+      if (state.client == client && !_replacing) {
+        state = const ConnState(ConnStatus.connecting, message: 'relayd went away, reconnecting…');
+        Future<void>.delayed(const Duration(seconds: 1), connect);
+      }
+    }));
+  }
+
+  Future<void> _checkVersion(RelayClient client) async {
+    if (_upgraded) return;
+    final DaemonUpgrade? u;
+    try {
+      u = await DaemonUpdater(host()).check(client);
+    } catch (_) {
+      return;
+    }
+    if (u == null) {
+      // Replaced by someone else while waiting for runs (a reconnect).
+      if (ref.read(upgradeProvider)?.error == null) ref.read(upgradeProvider.notifier).set(null);
+      return;
+    }
+    if (state.client == client) await _replace(client, u);
+  }
+
+  /// Stops [client]'s relayd and starts the bundled one; while agent runs
+  /// are active (and not [force]), waits for them and says so in
+  /// [upgradeProvider].
+  Future<void> _replace(RelayClient client, DaemonUpgrade u, {bool force = false}) async {
+    _waitForRuns?.cancel();
+    if (state.client != client || _replacing) return;
+    final pending = ref.read(upgradeProvider.notifier);
+    _replacing = true;
+    try {
+      final next = await DaemonUpdater(host()).restart(client, u, force: force, onStopping: () {
+        pending.set(null);
+        state = ConnState(ConnStatus.connecting, message: 'Updating relayd ${u.running} → ${u.bundled}…');
+      });
+      _upgraded = true;
+      _replacing = false;
+      _connected(next);
+      final now = next.hello['version'] as String? ?? '';
+      if ((compareVersions(now, u.bundled) ?? 0) < 0) {
+        pending.set(UpgradeState(u, error: 'relayd $now started instead of ${u.bundled}. Quit Relay, stop relayd, and open Relay again.'));
+      }
+    } on RpcError catch (e) {
+      _replacing = false;
+      if (e.code != RpcError.busy) {
+        _upgraded = true;
+        pending.set(UpgradeState(u, error: 'Could not stop relayd ${u.running}: ${e.message}'));
+        return;
+      }
+      // Agent runs are active: try again once they have finished.
+      pending.set(UpgradeState(u, activeRuns: ((e.data as Map?)?['activeRuns'] as num?)?.toInt() ?? 1));
+      _waitForRuns = Timer(const Duration(seconds: 15), () => _replace(client, u));
+    } catch (e) {
+      _upgraded = true;
+      _replacing = false;
+      pending.set(UpgradeState(u, error: 'Could not restart relayd: $e'));
+      // relayd may be stopped by now: connecting starts the bundled one.
+      if (state.client != client || client.peer.isClosed) await connect();
+    }
+  }
+
+  /// "Restart now": stops the agent runs too.
+  Future<void> replaceNow() async {
+    final client = state.client;
+    final u = ref.read(upgradeProvider)?.upgrade;
+    if (client != null && u != null) await _replace(client, u, force: true);
+  }
 }
+
+/// relayd is older than this app: waiting for [activeRuns] to finish before
+/// restarting it, or [error] when it couldn't be replaced.
+class UpgradeState {
+  const UpgradeState(this.upgrade, {this.activeRuns = 0, this.error});
+  final DaemonUpgrade upgrade;
+  final int activeRuns;
+  final String? error;
+}
+
+class UpgradeNotifier extends Notifier<UpgradeState?> {
+  @override
+  UpgradeState? build() => null;
+
+  void set(UpgradeState? s) => state = s;
+}
+
+final upgradeProvider = NotifierProvider<UpgradeNotifier, UpgradeState?>(UpgradeNotifier.new);
 
 final connectionProvider = NotifierProvider<ConnectionNotifier, ConnState>(ConnectionNotifier.new);
 

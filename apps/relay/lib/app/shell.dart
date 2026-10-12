@@ -34,6 +34,7 @@ import '../ui/split.dart';
 import 'commands.dart';
 import 'sidebar.dart';
 import 'theme.dart';
+import 'upgrade_banner.dart';
 
 class Shell extends ConsumerStatefulWidget {
   const Shell({super.key});
@@ -292,14 +293,19 @@ class _ShellState extends ConsumerState<Shell> {
         child: Scaffold(
           body: _onboarding
               ? OnboardingPage(onDone: () => setState(() => _onboarding = false))
-              : ResizableSplit(
-                  id: 'shell.sidebar',
-                  initial: 220,
-                  min: 180,
-                  keepOther: 640,
-                  first: Sidebar(focusNode: _sidebarFocus),
-                  second: Focus(focusNode: _contentFocus, child: content),
-                ),
+              : Column(children: [
+                  const UpgradeBanner(),
+                  Expanded(
+                    child: ResizableSplit(
+                      id: 'shell.sidebar',
+                      initial: 220,
+                      min: 180,
+                      keepOther: 640,
+                      first: Sidebar(focusNode: _sidebarFocus),
+                      second: Focus(focusNode: _contentFocus, child: content),
+                    ),
+                  ),
+                ]),
         ),
       ),
     );

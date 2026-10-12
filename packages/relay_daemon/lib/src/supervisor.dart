@@ -31,6 +31,7 @@ class Supervisor {
   SyncService? sync;
   final _sessions = <String, AgentSession>{}; // runId → session
   final _deadlines = <String, Timer>{}; // runId → stop-after timer
+  final _pumps = <String, Future<void>>{}; // runId → its event pump
   Timer? _timer;
   bool _ticking = false;
 
@@ -39,14 +40,30 @@ class Supervisor {
     _timer = Timer.periodic(every, (_) => tick());
   }
 
+  /// relayd is stopping: its runs end as if it had restarted (stopped, the
+  /// task queued again), and their pumps finish before the store closes.
   Future<void> dispose() async {
     _timer?.cancel();
     for (final t in _deadlines.values) {
       t.cancel();
     }
-    for (final s in _sessions.values.toList()) {
+    for (final MapEntry(key: runId, value: s) in _sessions.entries.toList()) {
+      final run = ctx.store.get<Run>(Kind.run, runId);
+      if (run != null && RunStatus.isActive(run.status)) {
+        ctx.store.patch<Run>(Kind.run, runId, {
+          'status': RunStatus.stopped,
+          'endedAt': DateTime.now().toUtc().toIso8601String(),
+          'error': 'relayd stopped while this run was active',
+        });
+        ctx.store.appendEvent(runId, RunEventType.status, {'status': 'stopped', 'detail': 'relayd stopped'});
+        final t = ctx.store.get<Task>(Kind.task, run.taskId);
+        if (t != null && t.status == TaskStatus.running) {
+          ctx.store.patch<Task>(Kind.task, t.id, {'status': TaskStatus.queued, 'attention': null, 'activeRunId': null});
+        }
+      }
       await s.stop();
     }
+    await Future.wait(_pumps.values).timeout(const Duration(seconds: 10), onTimeout: () => []);
   }
 
   int activeRuns(String agentId) => _sessions.keys.where((id) => ctx.store.get<Run>(Kind.run, id)?.agentId == agentId).length;
@@ -346,7 +363,9 @@ class Supervisor {
     ctx.store.patch<Run>(Kind.run, run.id, {'status': RunStatus.running});
     final using = [?useModel, if (useEffort != null) 'effort $useEffort'].join(', ');
     ctx.store.appendEvent(run.id, RunEventType.status, {'status': 'running', 'detail': 'Started ${agent.name}${using.isEmpty ? '' : ' ($using)'} in $cwd'});
-    unawaited(_pump(run.id, session));
+    // A pump error stays uncaught, as it was before dispose() waited on it.
+    final pump = _pumps[run.id] = _pump(run.id, session).catchError((Object e, StackTrace st) => Zone.current.handleUncaughtError(e, st));
+    unawaited(pump.whenComplete(() => _pumps.remove(run.id)));
     _broadcastAgentState();
     return ctx.run(run.id);
   }
