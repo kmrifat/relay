@@ -271,74 +271,104 @@ class _BoardViewState extends ConsumerState<BoardView> {
       onKeyEvent: (_, e) => _key(e, cols),
       child: ListenableBuilder(
         listenable: _focus,
-        builder: (context, _) => LayoutBuilder(builder: (context, box) {
-          final folded = doneFolded ? 44.0 : null;
-          final open = TaskStatus.columns.length - (doneFolded ? 1 : 0);
-          final w = ((box.maxWidth - 28 - (folded ?? 0) - (TaskStatus.columns.length - 1) * 10) / open).clamp(190.0, 340.0);
-          final width = open * w + (folded ?? 0) + (TaskStatus.columns.length - 1) * 10 + 28;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: width < box.maxWidth ? box.maxWidth : width,
-              height: box.maxHeight,
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-                  child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    for (final (i, s) in TaskStatus.columns.indexed) ...[
-                      if (i > 0) const SizedBox(width: 10),
-                      SizedBox(width: s == TaskStatus.done && doneFolded ? folded : w, child: _header(context, data, s, visible)),
-                    ],
+        // The key hints sit under the board, outside both scroll views, so
+        // they stay put however far the cards scroll.
+        builder: (context, _) => Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(
+            child: LayoutBuilder(builder: (context, box) {
+              // Each column sits on its own panel, Trello style; the panels reach
+              // [inset] past the cards, so [gap] leaves room between them.
+              const pad = 20.0, gap = 24.0, inset = 8.0;
+              final folded = doneFolded ? 44.0 : null;
+              final open = TaskStatus.columns.length - (doneFolded ? 1 : 0);
+              final w = ((box.maxWidth - 2 * pad - (folded ?? 0) - (TaskStatus.columns.length - 1) * gap) / open).clamp(190.0, 340.0);
+              final width = open * w + (folded ?? 0) + (TaskStatus.columns.length - 1) * gap + 2 * pad;
+              final widths = [for (final s in TaskStatus.columns) s == TaskStatus.done && doneFolded ? folded! : w];
+              final panels = <Widget>[
+                for (var i = 0, x = pad; i < widths.length; x += widths[i] + gap, i++)
+                  Positioned(
+                    left: x - inset,
+                    width: widths[i] + 2 * inset,
+                    top: 6,
+                    bottom: 8,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: c.text.withValues(alpha: context.isDark ? 0.03 : 0.025),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: c.boxStroke.withValues(alpha: 0.4)),
+                      ),
+                    ),
+                  ),
+              ];
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SizedBox(
+                  width: width < box.maxWidth ? box.maxWidth : width,
+                  height: box.maxHeight,
+                  child: Stack(children: [
+                    ...panels,
+                    Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(pad, 14, pad, 8),
+                        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          for (final (i, s) in TaskStatus.columns.indexed) ...[
+                            if (i > 0) const SizedBox(width: gap),
+                            SizedBox(width: s == TaskStatus.done && doneFolded ? folded : w, child: _header(context, data, s, visible)),
+                          ],
+                        ]),
+                      ),
+                      Expanded(
+                        child: ListView(padding: const EdgeInsets.fromLTRB(pad, 0, pad, 16), children: [
+                          for (final l in rows) ...[
+                            if (l.label != null) _laneHeader(context, data, l),
+                            Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              for (final (i, s) in TaskStatus.columns.indexed) ...[
+                                if (i > 0) const SizedBox(width: gap),
+                                SizedBox(
+                                  width: s == TaskStatus.done && doneFolded ? folded : w,
+                                  child: s == TaskStatus.done && doneFolded
+                                      ? _FoldedDone(count: l.tasks.where((t) => t.status == s).length, onTap: () {
+                                          setState(() => doneFolded = false);
+                                          _save();
+                                        })
+                                      : _Cell(
+                                          status: s,
+                                          tasks: sorted(l.tasks.where((t) => t.status == s)),
+                                          epic: l.epic,
+                                          selected: _selected,
+                                          selectedKey: _selectedKey,
+                                          showFocus: _focus.hasFocus,
+                                          compact: compact,
+                                          empty: rows.length == 1 || l.tasks.isEmpty,
+                                          onSelect: (id) {
+                                            final last = _lastClick;
+                                            _lastClick = (id, DateTime.now());
+                                            if (last != null && last.$1 == id && DateTime.now().difference(last.$2) < const Duration(milliseconds: 400)) {
+                                              return _open(id);
+                                            }
+                                            _select(id);
+                                            _focus.requestFocus();
+                                          },
+                                          onOpen: _open,
+                                        ),
+                                ),
+                              ],
+                            ]),
+                            const SizedBox(height: 12),
+                          ],
+                          if (visible.isEmpty && data.tasksOf(widget.projectId).isNotEmpty)
+                            Padding(padding: const EdgeInsets.all(20), child: Center(child: Text('No task matches the filters.', style: context.t(13, color: c.text2)))),
+                        ]),
+                      ),
+                    ]),
                   ]),
                 ),
-                Expanded(
-                  child: ListView(padding: const EdgeInsets.fromLTRB(14, 0, 14, 16), children: [
-                    for (final l in rows) ...[
-                      if (l.label != null) _laneHeader(context, data, l),
-                      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                        for (final (i, s) in TaskStatus.columns.indexed) ...[
-                          if (i > 0) const SizedBox(width: 10),
-                          SizedBox(
-                            width: s == TaskStatus.done && doneFolded ? folded : w,
-                            child: s == TaskStatus.done && doneFolded
-                                ? _FoldedDone(count: l.tasks.where((t) => t.status == s).length, onTap: () {
-                                    setState(() => doneFolded = false);
-                                    _save();
-                                  })
-                                : _Cell(
-                                    status: s,
-                                    tasks: sorted(l.tasks.where((t) => t.status == s)),
-                                    epic: l.epic,
-                                    selected: _selected,
-                                    selectedKey: _selectedKey,
-                                    showFocus: _focus.hasFocus,
-                                    compact: compact,
-                                    empty: rows.length == 1 || l.tasks.isEmpty,
-                                    onSelect: (id) {
-                                      final last = _lastClick;
-                                      _lastClick = (id, DateTime.now());
-                                      if (last != null && last.$1 == id && DateTime.now().difference(last.$2) < const Duration(milliseconds: 400)) {
-                                        return _open(id);
-                                      }
-                                      _select(id);
-                                      _focus.requestFocus();
-                                    },
-                                    onOpen: _open,
-                                  ),
-                          ),
-                        ],
-                      ]),
-                      const SizedBox(height: 12),
-                    ],
-                    if (visible.isEmpty && data.tasksOf(widget.projectId).isNotEmpty)
-                      Padding(padding: const EdgeInsets.all(20), child: Center(child: Text('No task matches the filters.', style: context.t(13, color: c.text2)))),
-                    _keyHints(context),
-                  ]),
-                ),
-              ]),
-            ),
-          );
-        }),
+              );
+            }),
+          ),
+          Container(height: 1, color: c.separator),
+          _keyHints(context),
+        ]),
       ),
     );
 
@@ -570,7 +600,7 @@ class _BoardViewState extends ConsumerState<BoardView> {
       ]),
     );
     return Padding(
-      padding: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.fromLTRB(20, 7, 20, 7),
       child: Wrap(runSpacing: 6, children: [
         hint('← → ↑ ↓', 'move'),
         hint('Space', 'peek'),
