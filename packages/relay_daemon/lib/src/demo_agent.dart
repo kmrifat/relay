@@ -46,7 +46,11 @@ Future<int> runDemoAgent(List<String> args) async {
   emit({'type': 'system', 'subtype': 'init', 'cwd': cwd, 'session_id': session, 'model': 'demo', 'tools': ['Read', 'Write', 'Bash']});
   await Future<void>.delayed(delay);
 
-  final title = RegExp(r'^# (.+)$', multiLine: true).firstMatch(prompt)?.group(1) ?? 'the task';
+  // A task's title; in a chat, the person's message (a resumed turn's
+  // prompt is just that message).
+  final title = RegExp(r'^# (.+)$', multiLine: true).firstMatch(prompt)?.group(1) ??
+      RegExp(r'^## Their message\n(.+)$', multiLine: true).firstMatch(prompt)?.group(1) ??
+      (prompt.trim().isEmpty || prompt.contains('\n## ') ? 'the task' : prompt.trim().split('\n').first);
   emit(_assistant([
     {'type': 'text', 'text': 'I\'ll look at the workspace for "$title" first.'},
     {'type': 'tool_use', 'id': 't1', 'name': 'Bash', 'input': {'command': 'ls'}},

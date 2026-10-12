@@ -288,6 +288,18 @@ class Api {
                 agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?, model: p['model'] as String?, effort: p['effort'] as String?))
             .toJson();
       },
+      M.chatsSend: (p) async {
+        final r = await supervisor.chat(
+          chatId: p['chatId'] as String?,
+          agentId: _s(p, 'agentId'),
+          text: _s(p, 'text'),
+          context: p['context'] as String?,
+          projectId: p['projectId'] as String?,
+          model: p['model'] as String?,
+          effort: p['effort'] as String?,
+        );
+        return {'chatId': r.chatId, 'runId': r.runId};
+      },
       M.runsSteer: (p) {
         supervisor.steer(_s(p, 'runId'), _s(p, 'text'));
         return true;

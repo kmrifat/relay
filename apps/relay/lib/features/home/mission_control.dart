@@ -12,7 +12,7 @@ import '../../data/relay_data.dart';
 import '../../ui/split.dart';
 import '../../ui/widgets.dart';
 import '../agents/model_picker.dart';
-import '../ask/ask_palette.dart';
+import '../chat/chat_panel.dart';
 import '../task/task_bits.dart' show statusColor;
 
 /// What happened lately (relayd's `activity.list`), fetched again when
@@ -71,7 +71,7 @@ class _MissionControlState extends ConsumerState<MissionControl> {
               });
             },
           ),
-          Btn('Ask an agent', small: true, kind: BtnKind.primary, icon: LucideIcons.sparkles, onTap: () => showAskPalette(context, ref)),
+          Btn('Chat with an agent', small: true, kind: BtnKind.primary, icon: LucideIcons.sparkles, onTap: ref.read(chatProvider.notifier).toggle),
         ],
       ),
       Container(height: 1, color: c.separator),
@@ -186,7 +186,7 @@ class _ProductCard extends ConsumerWidget {
           Row(children: [
             Text('No agents on this product yet.', style: context.t(12, color: c.text2)),
             const SizedBox(width: 8),
-            Btn('Ask an agent', small: true, kind: BtnKind.plain, onTap: () => showAskPalette(context, ref)),
+            Btn('Chat with an agent', small: true, kind: BtnKind.plain, onTap: ref.read(chatProvider.notifier).toggle),
           ])
         else
           LayoutBuilder(builder: (context, box) {
@@ -233,7 +233,8 @@ class _Lane extends ConsumerWidget {
     final data = ref.watch(dataProvider);
     final a = agent;
     final mine = data.tasksOf(projectId).where((t) => t.assignee == a.id).toList();
-    final run = data.all<Run>(Kind.run).where((r) => r.agentId == a.id && RunStatus.isActive(r.status)).firstOrNull;
+    // Its live work; a side-panel chat is a conversation, not work.
+    final run = data.all<Run>(Kind.run).where((r) => r.agentId == a.id && RunStatus.isActive(r.status) && data.get<Task>(Kind.task, r.taskId)?.data['ask'] != 'chat').firstOrNull;
     final runTask = run == null ? null : data.get<Task>(Kind.task, run.taskId);
     final waiting = mine.where((t) => inSmartList(AppPage.waiting, t)).firstOrNull;
     final failed = mine.where((t) => t.data['attention'] == 'failed').firstOrNull;
@@ -254,7 +255,7 @@ class _Lane extends ConsumerWidget {
     return Hoverable(
       radius: 6,
       onTap: () => team == null
-          ? ref.read(navProvider.notifier).page(AppPage.agents)
+          ? ref.read(navProvider.notifier).agent(a.id)
           : ref.read(navProvider.notifier).team(team.id, agentId: a.id),
       child: Container(
         padding: const EdgeInsets.all(10),

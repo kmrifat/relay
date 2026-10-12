@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -12,13 +13,14 @@ import '../data/system.dart';
 import '../data/notifications.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
-import '../features/ask/ask_palette.dart';
+import '../features/chat/chat_panel.dart';
 import '../features/channel/channel_page.dart';
 import '../features/code/code_session.dart';
 import '../features/help/keyboard_map.dart';
 import '../features/home/activity_page.dart';
 import '../features/home/mission_control.dart';
 import '../features/onboarding/onboarding_page.dart';
+import '../features/agents/agent_page.dart';
 import '../features/agents/fleet_page.dart';
 import '../features/project/project_dialogs.dart';
 import '../features/project/project_page.dart';
@@ -115,7 +117,14 @@ class _ShellState extends ConsumerState<Shell> {
       final client = ref.read(clientProvider);
       final s = await client.map(M.settingsGet);
       final projects = await client.list(M.projectsList);
+      final saved = await client.call<String?>(M.uiGet, {'key': 'nav'}).catchError((Object _) => null);
       if (!mounted) return;
+      if (saved != null) {
+        final place = NavState.fromJson((jsonDecode(saved) as Map).cast<String, Object?>());
+        // Not into a project that has since gone.
+        final known = place != null && (place.projectId == null || projects.any((p) => (p as Map)['id'] == place.projectId));
+        if (known) ref.read(navProvider.notifier).restore(place);
+      }
       setState(() {
         _paused = '${s['schedulerPaused']}' == 'true';
         _onboarding = '${s['onboarded']}' != 'true' && projects.isEmpty;
@@ -153,7 +162,7 @@ class _ShellState extends ConsumerState<Shell> {
 
     return {
       Cmd.quickFind: () => showQuickFind(context, ref),
-      Cmd.askAgent: () => showAskPalette(context, ref),
+      Cmd.askAgent: ref.read(chatProvider.notifier).toggle,
       Cmd.home: () => n.page(AppPage.home),
       Cmd.activity: () => n.page(AppPage.activity),
       for (var i = 0; i < data.projects.length && i < 9; i++) Cmd.project(i): () => n.project(data.projects[i].id),
@@ -236,6 +245,10 @@ class _ShellState extends ConsumerState<Shell> {
       ));
     });
 
+    // Where you are, so the next launch opens there.
+    ref.listen(navProvider, (_, next) {
+      ref.read(clientProvider).call(M.uiSet, {'key': 'nav', 'value': jsonEncode(next.toJson())}).catchError((Object _) => null);
+    });
     final nav = ref.watch(navProvider);
     final data = ref.watch(dataProvider);
     // Default to the first project once data arrives.
@@ -268,6 +281,7 @@ class _ShellState extends ConsumerState<Shell> {
             : ProjectPage(projectId: nav.projectId!, view: nav.view),
         AppPage.inbox || AppPage.running || AppPage.review || AppPage.waiting => SmartListPage(page: nav.page),
         AppPage.agents => const FleetPage(),
+        AppPage.agent => nav.agentId == null ? const FleetPage() : AgentPage(agentId: nav.agentId!),
         AppPage.settings => const SettingsPage(),
         AppPage.channel => nav.channelId == null ? const SettingsPage() : ChannelPage(channelId: nav.channelId!),
         AppPage.team => nav.teamId == null ? const FleetPage() : TeamPage(teamId: nav.teamId!, agentId: nav.agentId),
@@ -276,6 +290,7 @@ class _ShellState extends ConsumerState<Shell> {
       };
     }
 
+    final chatOpen = ref.watch(chatProvider.select((s) => s.open));
     _route = ModalRoute.of(context);
     if (_onboarding) {
       Commands.instance.unregister();
@@ -302,7 +317,17 @@ class _ShellState extends ConsumerState<Shell> {
                       min: 180,
                       keepOther: 640,
                       first: Sidebar(focusNode: _sidebarFocus),
-                      second: Focus(focusNode: _contentFocus, child: content),
+                      // The chat sits on the right of every page.
+                      second: ResizableSplit(
+                        id: 'shell.chat',
+                        sized: SplitSide.second,
+                        initial: 380,
+                        min: 320,
+                        keepOther: 560,
+                        collapsedTo: chatOpen ? null : 0,
+                        first: Focus(focusNode: _contentFocus, child: content),
+                        second: chatOpen ? const ChatPanel() : const SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 ]),

@@ -77,11 +77,19 @@ class RelayTools {
   RelayClient? _client;
   Map<String, Object?>? _run;
 
-  List<Map<String, Object?>> get _tools => forRun ? _runTools : _personTools;
+  /// A side-panel chat's run: it acts for the person, so it gets their
+  /// tools (every project's tasks, moving them) rather than a task's.
+  bool _chat = false;
+
+  List<Map<String, Object?>> get _tools => forRun && !_chat ? _runTools : _personTools;
 
   Future<RelayClient> _relay() async {
     _client ??= await RelayClient.connect(paths, client: 'mcp');
-    if (forRun) _run ??= await _client!.map(M.runsGet, {'id': runId});
+    if (forRun && _run == null) {
+      _run = await _client!.map(M.runsGet, {'id': runId});
+      final task = await _client!.map(M.tasksGet, {'id': _run!['taskId']});
+      _chat = (task['task'] as Map?)?['ask'] == 'chat';
+    }
     return _client!;
   }
 
@@ -98,6 +106,7 @@ class RelayTools {
 
   /// An agent sees the tools its role allows.
   Future<List<Map<String, Object?>>> list() async {
+    await _relay();
     final allowed = await _caps();
     return [for (final t in _tools) if (allowed == null || _allowed(t['name'] as String, allowed)) t];
   }
@@ -107,7 +116,7 @@ class RelayTools {
     final c = await _relay();
     final allowed = await _caps();
     if (allowed != null && !_allowed(name, allowed)) throw RpcError(RpcError.invalidParams, 'Your role may not use $name.');
-    if (!forRun) {
+    if (!forRun || _chat) {
       return switch (name) {
         'relay_projects' => await _projects(c),
         'relay_tasks' => await _tasks(c, a['project'] as String?, a['status'] as String?),

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:relay_core/relay_core.dart';
 
+import '../app/nav_bar.dart';
 import '../app/theme.dart';
 
 /// Small text styles used everywhere.
@@ -354,22 +355,33 @@ class Toolbar extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     height: 52,
     color: context.c.toolbar,
-    padding: const EdgeInsets.symmetric(horizontal: 16),
+    padding: const EdgeInsets.fromLTRB(10, 0, 16, 0),
     child: Row(children: [
+      const NavButtons(),
+      const SizedBox(width: 8),
       ?leading,
       if (leading != null) const SizedBox(width: 10),
-      ConstrainedBox(
-        constraints: const BoxConstraints(minWidth: 150, maxWidth: 360),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(13, w: FontWeight.w700)),
-          if (subtitle != null) Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: context.c.text2)),
-        ]),
+      // The title and the middle give way when the page is narrow (the chat
+      // panel open, a small window); the actions keep their size.
+      Flexible(
+        flex: 2,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 480),
+          child: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              const Flexible(child: SingleChildScrollView(scrollDirection: Axis.horizontal, reverse: true, child: CrumbTrail())),
+              Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(13, w: FontWeight.w700))),
+            ]),
+            if (subtitle != null) Text(subtitle!, maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: context.c.text2)),
+          ]),
+        ),
       ),
       const SizedBox(width: 14),
-      ...middle,
+      if (middle.isNotEmpty) Flexible(flex: 3, child: SingleChildScrollView(scrollDirection: Axis.horizontal, child: Row(children: middle))),
       const Spacer(),
       if (center != null) ...[center!, const Spacer()],
       for (final a in actions) Padding(padding: const EdgeInsets.only(left: 8), child: a),
+      const ChatToggle(),
     ]),
   );
 }
