@@ -104,6 +104,14 @@ class SyncService {
             'slots': a.slots,
             'version': a.version,
             'dailyCapUsd': a.dailyCapUsd,
+            // Role agents show as who they are on the team; their
+            // responsibilities (your prompts) stay on this Mac.
+            if (a.isRole) ...{
+              'role': a.role,
+              'team': ?(a.teamId == null ? null : ctx.store.get<Team>(Kind.team, a.teamId!)?.name),
+              'model': ?a.model,
+              'effort': ?a.effort,
+            },
             ...?stats[a.id],
           },
       ],

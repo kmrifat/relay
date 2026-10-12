@@ -8,7 +8,7 @@ enum AppPage { project, inbox, running, review, waiting, agents, settings, chann
 
 class NavState {
   const NavState({
-    this.page = AppPage.project,
+    this.page = AppPage.home,
     this.projectId,
     this.view = ProjectView.board,
     this.taskId,
@@ -49,11 +49,16 @@ class NavState {
 }
 
 class NavNotifier extends Notifier<NavState> {
+  NavNotifier([this.initial = const NavState()]);
+
+  /// Where the app opens: Mission control.
+  final NavState initial;
+
   final _back = <NavState>[];
   final _forward = <NavState>[];
 
   @override
-  NavState build() => const NavState();
+  NavState build() => initial;
 
   /// Every move goes through here, so ⌘[ and ⌘] can walk it back.
   void _go(NavState next) {

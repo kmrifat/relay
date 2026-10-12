@@ -19,15 +19,15 @@ import '../agents/model_picker.dart';
 import '../task/task_bits.dart';
 
 /// An agent you can @mention: this Mac's, or a teammate's shared one.
-typedef ChannelAgent = ({String id, String name, String color, String letter, String deviceId, String owner, bool mine});
+typedef ChannelAgent = ({String id, String name, String role, String color, String letter, String deviceId, String owner, bool mine});
 
 /// The team's agents as `@handles`, this Mac's first.
 List<ChannelAgent> channelAgents(DataSnapshot data, String me, String myName) => [
   for (final a in data.agents.where((a) => a.binaryPath != null && a.enabled))
-    (id: a.id, name: a.name, color: a.color, letter: a.letter, deviceId: me, owner: myName, mine: true),
+    (id: a.id, name: a.name, role: a.role, color: a.color, letter: a.letter, deviceId: me, owner: myName, mine: true),
   for (final d in data.devices.where((d) => d.id != me && d.shareAgents))
     for (final a in d.agents)
-      (id: '${a['id']}', name: '${a['name']}', color: '${a['color'] ?? ''}', letter: '${a['letter'] ?? '?'}', deviceId: d.id, owner: d.person.isEmpty ? d.name : d.person, mine: false),
+      (id: '${a['id']}', name: '${a['name']}', role: '${a['role'] ?? ''}', color: '${a['color'] ?? ''}', letter: '${a['letter'] ?? '?'}', deviceId: d.id, owner: d.person.isEmpty ? d.name : d.person, mine: false),
 ];
 
 /// T04 · a team channel.
@@ -641,7 +641,7 @@ class _ComposerState extends ConsumerState<_Composer> {
     for (final a in widget.agents) {
       if (!a.id.toLowerCase().startsWith(p) && !a.name.toLowerCase().startsWith(p)) continue;
       if (!seen.add(a.id)) continue;
-      out.add((a.id, '${a.name} · ${a.mine ? Desk.thisComputer : "${a.owner}'s"}',
+      out.add((a.id, '${a.name}${a.role.isEmpty ? '' : ' · ${a.role}'} · ${a.mine ? Desk.thisComputer : "${a.owner}'s"}',
           AgentTile(agent: AgentProfile({'color': a.color, 'letter': a.letter}), size: 16)));
     }
     for (final person in data.devices.map((d) => d.person).where((x) => x.isNotEmpty).toSet()) {

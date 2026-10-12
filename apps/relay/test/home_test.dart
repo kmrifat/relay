@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:relay/app/shell.dart';
+import 'package:relay/app/theme.dart';
+import 'package:relay/data/relay_data.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import 'app_test.dart' show app, fakeRelayd, settleUntil;
@@ -49,6 +53,19 @@ void main() {
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
     expect(comments.single, {'taskId': 't3', 'body': 'Resend'});
+    await tester.binding.setSurfaceSize(null);
+  });
+
+  testWidgets('the app opens on Mission control', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1440, 900));
+    final client = await tester.runAsync(fakeRelayd);
+    await tester.pumpWidget(ProviderScope(
+      overrides: [clientProvider.overrideWithValue(client!)],
+      child: MaterialApp(theme: buildTheme(Brightness.dark), home: const Shell()),
+    ));
+    await settleUntil(tester, find.text('Resend or CF Email?'));
+    expect(find.text('Mission control'), findsWidgets);
+    expect(find.text('Needs you · 2'), findsOneWidget); // KT-3's question, KT-1 ready to merge
     await tester.binding.setSurfaceSize(null);
   });
 }

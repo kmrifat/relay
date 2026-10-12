@@ -290,6 +290,11 @@ void main() {
     expect(pria.can(AgentCap.editCode), isFalse);
     expect(bram.can(AgentCap.editCode), isTrue);
     expect(pria.efforts, isNotEmpty); // the CLI's offers came along
+    // Teammates see who is on the squad, not its prompts.
+    final me = DeviceInfo((await client.list(M.devicesList)).firstWhere((d) => d['id'] == client.hello['deviceId']));
+    final shared = me.agents.firstWhere((a) => a['id'] == 'pria');
+    expect([shared['role'], shared['team'], shared['model']], ['Project manager', 'Kitchenly squad', 'opus']);
+    expect(shared.containsKey('responsibilities'), isFalse);
 
     // The PM's prompt carries its role; its run can't edit (Claude-style flags).
     final sup = daemon.supervisor;

@@ -98,8 +98,13 @@ Future<void> settleUntil(WidgetTester tester, Finder finder) async {
   }
 }
 
+/// The desktop app over [client]; it starts on the first project's board
+/// (the real app opens on Mission control).
 Widget app(RelayClient client) => ProviderScope(
-  overrides: [clientProvider.overrideWithValue(client)],
+  overrides: [
+    clientProvider.overrideWithValue(client),
+    navProvider.overrideWith(() => NavNotifier(const NavState(page: AppPage.project))),
+  ],
   child: MaterialApp(theme: buildTheme(Brightness.dark), home: const Shell()),
 );
 

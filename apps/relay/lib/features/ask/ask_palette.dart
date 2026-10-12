@@ -173,7 +173,7 @@ class _AskPaletteState extends ConsumerState<_AskPalette> {
 
     String agentDetail(ChannelAgent a) {
       final p = a.mine ? data.get<AgentProfile>(Kind.agent, a.id) : null;
-      if (p == null) return "${a.owner}'s";
+      if (p == null) return [if (a.role.isNotEmpty) a.role, "${a.owner}'s"].join(' · ');
       final active = data.all<Run>(Kind.run).where((r) => r.agentId == a.id && RunStatus.isActive(r.status)).length;
       final defaults = [if (p.model != null) modelLabel(p, p.model), ?p.effort].join(' · ');
       return [if (defaults.isNotEmpty) defaults, active >= p.slots ? 'all slots busy' : '${p.slots - active} slot${p.slots - active == 1 ? '' : 's'} free'].join(' · ');

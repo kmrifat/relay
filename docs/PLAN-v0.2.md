@@ -23,9 +23,9 @@ All six milestones are built on branch `v0.2-agent-teams`, one commit each, and 
 |---|---|---|
 | M11 Keyboard, focus, splits | ✅ | `app/commands.dart` (HardwareKeyboard handler), `app/menus.dart` (macOS menu bar), `ui/split.dart`; keyboard map on `?` / ⌘/ |
 | M12 Model and effort | ✅ | Claude `--effort` checked on 2.1.278. Codex's `model_reasoning_effort` and the generic `{model}` / `{effort}` flags are from their docs and aren't checked: Codex isn't installed, and OpenCode can't start in the sandbox |
-| M13 Roles and teams | ✅ | Role agents run on a CLI runtime; teams and templates; team page (P02). Teams stay local (decision 2 below is still open) |
+| M13 Roles and teams | ✅ | Role agents run on a CLI runtime; teams and templates; team page (P02). Roles stay on the owner's Mac; teammates see a summary (decision 2) |
 | M14 Working together | ✅ | Mailbox, plans, handoffs, PM-first questions, limits, `relay tool`, Codex MCP via `-c`. Covered with the demo agent; not yet with live Claude runs |
-| M15 Mission control | ✅ | ⌘0 opens it; the app still starts on the first project's board (decision 4 below) |
+| M15 Mission control | ✅ | The app opens on it (decision 4); ⌘0 returns to it |
 | M16 Board v2 | ✅ | Peek, filters, epic lanes, folding Done, reorder, new status names |
 
 **Not done yet:** scheduled team rules (e.g. a nightly suite), spend-aware model step-down, the review loop on diff lines, and the other items in section 4. A first live dogfood run with a real Claude Code squad is still to do.
@@ -215,12 +215,12 @@ About 6–7 weeks. M11 and M12 are independent and can ship as 0.1.3 and 0.1.4. 
 - **Transcript search** across every run (⌘K scope "runs").
 - **Playbooks.** Saved multi-step asks ("release checklist", "dependency bump"), started from ⌘J.
 
-## 5. Decisions for the owner
-1. **Plan approval.** Should the PM need your OK before its plan starts? Proposed: yes by default, with a per-team toggle.
-2. **Sync agents?** Should personas sync to teammates (proposed), or stay per-device like today's profiles?
-3. **Keys.** ⌘1–9 for products and ⌥1–6 for views (proposed), or the other way round?
-4. **Home page.** Should Mission control replace Inbox as the start page (proposed)?
-5. **Status names.** Should the column names change (M16-04)?
+## 5. Decisions
+1. **Plan approval.** Should the PM need your OK before its plan starts? Proposed: yes by default, with a per-team toggle. *Built that way.*
+2. **Sync agents?** *Decided 2026-10-12: no; share a view of them instead.* Role agents run on the owner's CLI logins and plan limits, so their definitions stay on that Mac. Teammates see each one's name, role, team, model and effort through the device summary. Responsibilities stay private. Teammates can give them work only when the owner turns on Share my agents.
+3. **Keys.** ⌘1–9 for products and ⌥1–6 for views (proposed). *Built that way.*
+4. **Home page.** *Decided 2026-10-12: Relay opens on Mission control.*
+5. **Status names.** *Built: Ready, In progress, Review · QA.*
 
 ## 6. Risks
 - **CLI flags drift**, especially for effort. Mitigation: a capability probe at detect time, plus the editable table.
