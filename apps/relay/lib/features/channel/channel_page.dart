@@ -1,4 +1,6 @@
 
+import 'dart:convert';
+
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,18 +15,19 @@ import '../../data/relay_data.dart';
 import '../../ui/markdown.dart';
 import '../../ui/widgets.dart';
 import '../../ui/platform.dart';
+import '../agents/model_picker.dart';
 import '../task/task_bits.dart';
 
 /// An agent you can @mention: this Mac's, or a teammate's shared one.
-typedef ChannelAgent = ({String id, String name, String color, String letter, String deviceId, String owner, bool mine});
+typedef ChannelAgent = ({String id, String name, String role, String color, String letter, String deviceId, String owner, bool mine});
 
 /// The team's agents as `@handles`, this Mac's first.
 List<ChannelAgent> channelAgents(DataSnapshot data, String me, String myName) => [
   for (final a in data.agents.where((a) => a.binaryPath != null && a.enabled))
-    (id: a.id, name: a.name, color: a.color, letter: a.letter, deviceId: me, owner: myName, mine: true),
+    (id: a.id, name: a.name, role: a.role, color: a.color, letter: a.letter, deviceId: me, owner: myName, mine: true),
   for (final d in data.devices.where((d) => d.id != me && d.shareAgents))
     for (final a in d.agents)
-      (id: '${a['id']}', name: '${a['name']}', color: '${a['color'] ?? ''}', letter: '${a['letter'] ?? '?'}', deviceId: d.id, owner: d.person.isEmpty ? d.name : d.person, mine: false),
+      (id: '${a['id']}', name: '${a['name']}', role: '${a['role'] ?? ''}', color: '${a['color'] ?? ''}', letter: '${a['letter'] ?? '?'}', deviceId: d.id, owner: d.person.isEmpty ? d.name : d.person, mine: false),
 ];
 
 /// T04 · a team channel.
@@ -264,7 +267,8 @@ class _MessageRowState extends ConsumerState<_MessageRow> {
                 ]),
                 const SizedBox(height: 3),
                 if (m.tag == 'digest') _Digest(m) else if (m.body.isNotEmpty) _Body(m.body),
-                if (m.taskId != null && m.tag != 'digest') ...[const SizedBox(height: 8), _TaskCard(m.taskId!)],
+                if (m.tag == 'plan') ...[const SizedBox(height: 8), _PlanCard(m)],
+                if (m.taskId != null && m.tag != 'digest' && m.tag != 'plan') ...[const SizedBox(height: 8), _TaskCard(m.taskId!)],
                 for (final f in m.files) ...[const SizedBox(height: 8), _FileCard(m, f)],
                 if (m.reactions.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -377,6 +381,102 @@ class _Digest extends ConsumerWidget {
       ]),
     );
   }
+}
+
+/// A PM's plan (design P04): its tasks in order, who does each and what
+/// waits for what; it starts when you approve it.
+class _PlanCard extends ConsumerWidget {
+  const _PlanCard(this.m);
+  final Message m;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    final data = ref.watch(dataProvider);
+    final client = ref.read(clientProvider);
+    final items = m.maps('items');
+    final state = m.data['planState'] as String? ?? 'proposed';
+    final planId = m.data['planId'] as String? ?? m.id;
+    final (label, fg, bg) = switch (state) {
+      'approved' => ('Approved', c.success, c.successWash),
+      'rejected' => ('Turned down', c.text2, c.inner),
+      _ => ('Waiting for your OK', c.warning, c.warningWash),
+    };
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 620),
+      decoration: BoxDecoration(color: c.box, borderRadius: BorderRadius.circular(8), border: Border.all(color: c.boxStroke)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          child: Row(children: [
+            Expanded(child: Text('Plan · ${items.length} task${items.length == 1 ? '' : 's'}', style: context.t(12, w: FontWeight.w700))),
+            Pill(label, fg: fg, bg: bg),
+          ]),
+        ),
+        const Hairline(),
+        for (final (i, it) in items.indexed)
+          Hoverable(
+            radius: 0,
+            onTap: data.get<Task>(Kind.task, '${it['taskId']}') == null ? null : () => ref.read(navProvider.notifier).openTask('${it['taskId']}'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              child: Row(children: [
+                SizedBox(
+                  width: 56,
+                  child: Text([
+                    '${i + 1}',
+                    if ((it['after'] as List? ?? const []).isNotEmpty) '← ${(it['after'] as List).map((a) => (a as int) + 1).join(',')}',
+                  ].join(' '), style: context.t(11, family: mono, color: c.text3)),
+                ),
+                Expanded(child: Text('${it['title']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(12.5))),
+                if (it['agent'] != null) ...[
+                  AgentTile(agent: data.agents.where((a) => a.name == it['agent']).firstOrNull, agentId: '${it['agent']}', size: 14),
+                  const SizedBox(width: 6),
+                  SizedBox(width: 60, child: Text('${it['agent']}', maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: c.text2))),
+                ],
+              ]),
+            ),
+          ),
+        if (state == 'proposed') ...[
+          const Hairline(),
+          Padding(
+            padding: const EdgeInsets.all(10),
+            child: Wrap(spacing: 8, runSpacing: 6, children: [
+              Btn('Approve and start', kind: BtnKind.primary, small: true, onTap: () => client.call(M.plansApprove, {'planId': planId})),
+              Btn('Ask ${m.author} to change it', small: true, onTap: () async {
+                final what = await _askChange(context, m.author);
+                if (what == null || what.isEmpty) return;
+                // The PM gets it as a plan request in the thread.
+                await client.call(M.messagesPost, {
+                  'channelId': m.channelId,
+                  'body': 'Change the plan: $what',
+                  'agent': data.agents.where((a) => a.name == m.author).firstOrNull?.id ?? m.author,
+                  'mode': 'plan',
+                  'replyTo': m.id,
+                });
+                await client.call(M.plansReject, {'planId': planId});
+              }),
+              Btn('Not this one', small: true, onTap: () => client.call(M.plansReject, {'planId': planId})),
+            ]),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+Future<String?> _askChange(BuildContext context, String who) {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text('What should $who change?', style: context.t(14, w: FontWeight.w600)),
+      content: SizedBox(width: 420, child: FieldInput(controller: ctrl, autofocus: true, minLines: 3, maxLines: 6, hint: 'e.g. Do the email before the admin log')),
+      actions: [
+        Btn('Cancel', onTap: () => Navigator.pop(context)),
+        Btn('Send', kind: BtnKind.primary, onTap: () => Navigator.pop(context, ctrl.text.trim())),
+      ],
+    ),
+  );
 }
 
 /// A task a message made or reports on: key, status, title, who and where.
@@ -496,6 +596,15 @@ class _ComposerState extends ConsumerState<_Composer> {
   String? error;
   bool busy = false;
 
+  /// The agent picked with @ (design P04), and what it should do: its model
+  /// and effort, `task` / `answer` / `plan`, and the repos. The choices are
+  /// kept per channel and agent in relayd, so the next @ starts with them.
+  ChannelAgent? target;
+  String? model, effort;
+  String mode = 'task';
+  Set<String> repoIds = {};
+  bool showOptions = false;
+
   @override
   void initState() {
     super.initState();
@@ -532,7 +641,7 @@ class _ComposerState extends ConsumerState<_Composer> {
     for (final a in widget.agents) {
       if (!a.id.toLowerCase().startsWith(p) && !a.name.toLowerCase().startsWith(p)) continue;
       if (!seen.add(a.id)) continue;
-      out.add((a.id, '${a.name} · ${a.mine ? Desk.thisComputer : "${a.owner}'s"}',
+      out.add((a.id, '${a.name}${a.role.isEmpty ? '' : ' · ${a.role}'} · ${a.mine ? Desk.thisComputer : "${a.owner}'s"}',
           AgentTile(agent: AgentProfile({'color': a.color, 'letter': a.letter}), size: 16)));
     }
     for (final person in data.devices.map((d) => d.person).where((x) => x.isNotEmpty).toSet()) {
@@ -543,10 +652,59 @@ class _ComposerState extends ConsumerState<_Composer> {
   }
 
   void _complete(String handle) {
+    final agent = widget.agents.where((a) => a.id == handle).firstOrNull;
+    if (agent != null) {
+      _pick(agent);
+      return;
+    }
     final sel = text.selection.baseOffset;
     final before = text.text.substring(0, sel).replaceFirst(RegExp(r'@[A-Za-z0-9_.-]*$'), '@$handle ');
     final after = text.text.substring(sel);
     text.value = TextEditingValue(text: before + after, selection: TextSelection.collapsed(offset: before.length));
+  }
+
+  String get _optionsKey => 'channel.${widget.channel.id}.${target?.id}';
+
+  /// Takes the `@word` out of the text and makes [a] the message's agent,
+  /// with the options last used for it here.
+  Future<void> _pick(ChannelAgent a) async {
+    final sel = text.selection.baseOffset;
+    final before = text.text.substring(0, sel).replaceFirst(RegExp(r'@[A-Za-z0-9_.-]*$'), '');
+    final after = text.text.substring(sel);
+    text.value = TextEditingValue(text: before + after, selection: TextSelection.collapsed(offset: before.length));
+    setState(() {
+      target = a;
+      model = null;
+      effort = null;
+      mode = 'task';
+      repoIds = {};
+    });
+    focus.requestFocus();
+    try {
+      final raw = await ref.read(clientProvider).call<String?>(M.uiGet, {'key': _optionsKey});
+      if (raw == null || !mounted || target?.id != a.id) return;
+      final o = (jsonDecode(raw) as Map).cast<String, Object?>();
+      final repos = {for (final r in ref.read(dataProvider).reposOf(widget.channel.projectId ?? '')) r.id};
+      setState(() {
+        model = o['model'] as String?;
+        effort = o['effort'] as String?;
+        mode = o['mode'] as String? ?? 'task';
+        repoIds = {for (final r in (o['repoIds'] as List? ?? const []).cast<String>()) if (repos.contains(r)) r};
+      });
+    } on Object catch (_) {
+      // Nothing saved for this agent here yet.
+    }
+  }
+
+  void _options({String? model, String? effort, bool clearModel = false, bool clearEffort = false, String? mode, Set<String>? repoIds}) {
+    setState(() {
+      this.model = clearModel ? null : (model ?? this.model);
+      this.effort = clearEffort ? null : (effort ?? this.effort);
+      this.mode = mode ?? this.mode;
+      this.repoIds = repoIds ?? this.repoIds;
+    });
+    final saved = {'model': this.model, 'effort': this.effort, 'mode': this.mode, 'repoIds': this.repoIds.toList()};
+    ref.read(clientProvider).call(M.uiSet, {'key': _optionsKey, 'value': jsonEncode(saved)}).catchError((Object _) => true);
   }
 
   Future<void> _send() async {
@@ -557,9 +715,24 @@ class _ComposerState extends ConsumerState<_Composer> {
       error = null;
     });
     try {
-      final res = await ref.read(clientProvider).map(M.messagesPost, {'channelId': widget.channel.id, 'body': body, 'files': files});
+      final res = await ref.read(clientProvider).map(M.messagesPost, {
+        'channelId': widget.channel.id,
+        'body': body,
+        'files': files,
+        if (target != null) ...{
+          'agent': target!.id,
+          'model': ?model,
+          'effort': ?effort,
+          'mode': mode,
+          'repoIds': repoIds.toList(),
+        },
+      });
       text.clear();
       files.clear();
+      setState(() {
+        target = null;
+        showOptions = false;
+      });
       widget.onSent();
       final made = res['task'] as Map?;
       if (made != null && mounted) {
@@ -629,6 +802,8 @@ class _ComposerState extends ConsumerState<_Composer> {
                     visualDensity: VisualDensity.compact,
                   ),
               ]),
+            if (target != null) _targetChip(context),
+            if (target != null && showOptions) _optionsPanel(context),
             TextField(
               controller: text,
               focusNode: focus,
@@ -639,7 +814,9 @@ class _ComposerState extends ConsumerState<_Composer> {
               decoration: InputDecoration(
                 isDense: true,
                 border: InputBorder.none,
-                hintText: 'Message #${widget.channel.name}',
+                hintText: target == null
+                    ? 'Message #${widget.channel.name}'
+                    : switch (mode) { 'answer' => 'Ask ${target!.name} a question', 'plan' => 'What should ${target!.name} plan?', _ => 'What should ${target!.name} do?' },
                 hintStyle: context.t(13, color: c.text3),
                 contentPadding: const EdgeInsets.symmetric(vertical: 4),
               ),
@@ -654,13 +831,127 @@ class _ComposerState extends ConsumerState<_Composer> {
               }),
               const SizedBox(width: 6),
               Expanded(
-                child: Text(error ?? '/task makes a task · @agent assigns it · ↵ send',
+                child: Text(error ?? '@agent picks an agent, its model and what to do · /task makes a task · ↵ send',
                     maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: error != null ? c.danger : c.text3)),
               ),
-              Btn(isTask ? 'Create task' : 'Send', kind: BtnKind.primary, small: true, icon: LucideIcons.send, onTap: busy ? null : _send),
+              Btn(isTask || (target != null && mode == 'task') ? 'Create task' : (target != null ? 'Ask' : 'Send'),
+                  kind: BtnKind.primary, small: true, icon: LucideIcons.send, onTap: busy ? null : _send),
             ]),
           ]),
         ),
+      ]),
+    );
+  }
+
+  /// "[B] Bram · Sonnet · high · task · api ▾": who gets this message and how.
+  Widget _targetChip(BuildContext context) {
+    final c = context.c;
+    final a = target!;
+    final profile = a.mine ? ref.read(dataProvider).get<AgentProfile>(Kind.agent, a.id) : null;
+    final repos = ref.read(dataProvider).reposOf(widget.channel.projectId ?? '');
+    final summary = [
+      if (model != null) modelLabel(profile, model),
+      ?effort,
+      switch (mode) { 'answer' => 'just answer', 'plan' => 'plan only', _ => 'make a task' },
+      for (final r in repos.where((r) => repoIds.contains(r.id))) r.name,
+    ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(children: [
+        Pressable(
+          onTap: () => setState(() => showOptions = !showOptions),
+          builder: (context, hover, focused) => Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+            decoration: BoxDecoration(
+              color: c.accent.withValues(alpha: hover ? 0.28 : 0.18),
+              borderRadius: BorderRadius.circular(5),
+              border: Border.all(color: c.accent),
+            ),
+            foregroundDecoration: focusRing(context, focused, 5),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              AgentTile(agent: AgentProfile({'color': a.color, 'letter': a.letter}), size: 14),
+              const SizedBox(width: 6),
+              Text(a.name, style: context.t(12, w: FontWeight.w600)),
+              const SizedBox(width: 6),
+              Text(summary, style: context.t(11.5, color: c.accentIcon)),
+              const SizedBox(width: 4),
+              Icon(showOptions ? LucideIcons.chevronUp : LucideIcons.chevronDown, size: 12, color: c.accentIcon),
+            ]),
+          ),
+        ),
+        const SizedBox(width: 4),
+        IconBtn(LucideIcons.x, size: 12, tooltip: 'Send to the channel instead', onTap: () => setState(() {
+          target = null;
+          showOptions = false;
+        })),
+      ]),
+    );
+  }
+
+  /// Model and effort, what to do, and which repos (design P04).
+  Widget _optionsPanel(BuildContext context) {
+    final c = context.c;
+    final a = target!;
+    final data = ref.read(dataProvider);
+    final profile = a.mine ? data.get<AgentProfile>(Kind.agent, a.id) : null;
+    final repos = data.reposOf(widget.channel.projectId ?? '');
+    Widget line(String label, Widget child) => Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(children: [
+        SizedBox(width: 56, child: Text(label, style: context.t(11.5, color: c.text2))),
+        Expanded(child: child),
+      ]),
+    );
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 2),
+      decoration: BoxDecoration(color: c.box, borderRadius: BorderRadius.circular(6), border: Border.all(color: c.boxStroke)),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (profile != null)
+          line('Model', Align(
+            alignment: Alignment.centerLeft,
+            child: ModelEffortPicker(
+              agent: profile,
+              model: model,
+              effort: effort,
+              inherited: agentDefaults(profile),
+              onChanged: (m, e) => _options(model: m, effort: e, clearModel: m == null, clearEffort: e == null),
+            ),
+          ))
+        else
+          line('Model', Text("${a.owner}'s settings for ${a.name}", style: context.t(11.5, color: c.text3))),
+        line('Do', Align(
+          alignment: Alignment.centerLeft,
+          child: Segmented<String>(
+            small: true,
+            options: const [('task', 'Make a task'), ('answer', 'Just answer'), ('plan', 'Plan only')],
+            value: mode,
+            onChanged: (v) => _options(mode: v),
+          ),
+        )),
+        if (repos.length > 1)
+          line('Repos', Wrap(spacing: 4, runSpacing: 4, children: [
+            for (final r in repos)
+              Pressable(
+                onTap: () => _options(repoIds: repoIds.contains(r.id) ? ({...repoIds}..remove(r.id)) : {...repoIds, r.id}),
+                builder: (context, hover, focused) => Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: repoIds.contains(r.id) ? hexColor(r.color).withValues(alpha: 0.2) : Colors.transparent,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: repoIds.contains(r.id) ? hexColor(r.color) : c.fieldStroke),
+                  ),
+                  foregroundDecoration: focusRing(context, focused, 10),
+                  child: Text(r.name, style: context.t(11, color: repoIds.contains(r.id) ? hexColor(r.color) : c.text2)),
+                ),
+              ),
+          ])),
+        if (mode != 'task')
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(mode == 'answer' ? '${a.name} reads read-only copies and replies here; nothing goes on the board.' : '${a.name} replies here with a plan; nothing changes yet.',
+                style: context.t(11, color: c.text3)),
+          ),
       ]),
     );
   }

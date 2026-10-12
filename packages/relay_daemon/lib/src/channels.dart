@@ -96,33 +96,74 @@ class Channels {
   /// Posts [body] as this person. `/task [@agent] title` makes a task on
   /// the channel's board; `@agent` anywhere else asks that agent, which
   /// also becomes a task (it runs on the agent's device).
-  Future<Map<String, Object?>> post(String channelId, String body, {String? replyTo, List<String> files = const []}) async {
+  ///
+  /// The composer's picker can name the agent ([agent]) and choose its
+  /// [model], [effort], the [repoIds] and what to do ([mode]): `task` puts
+  /// work on the board, `answer` asks a question and `plan` asks for a plan
+  /// (both reply in the thread, with read-only copies and no board card).
+  Future<Map<String, Object?>> post(
+    String channelId,
+    String body, {
+    String? replyTo,
+    List<String> files = const [],
+    String? agent,
+    String? model,
+    String? effort,
+    String mode = 'task',
+    List<String> repoIds = const [],
+  }) async {
     final ch = store.get<Channel>(Kind.channel, channelId) ?? (throw RpcError(RpcError.notFound, 'No channel $channelId'));
     final text = body.trim();
     if (text.isEmpty && files.isEmpty) throw RpcError(RpcError.invalidParams, 'Write something.');
+    if (!const ['task', 'answer', 'plan'].contains(mode)) throw RpcError(RpcError.invalidParams, 'mode is task, answer or plan.');
     final attached = [for (final f in files) await _attach(f)];
+    final picked = agent == null ? null : (resolveAgent(agent) ?? (throw RpcError(RpcError.notFound, 'No agent $agent')));
+    final options = _Ask(model: model, effort: effort, mode: mode, repoIds: repoIds);
 
     final command = RegExp(r'^/task\b\s*').firstMatch(text);
     if (command != null) {
       final rest = text.substring(command.end);
-      final agents = [for (final h in _handles(rest)) ?resolveAgent(h)];
+      final agents = [?picked, for (final h in _handles(rest)) ?resolveAgent(h)];
       final title = _stripMentions(rest);
       if (title.isEmpty) throw RpcError(RpcError.invalidParams, 'Usage: /task [@agent] what to do');
-      final task = _makeTask(ch, title, brief: '', agent: agents.firstOrNull, status: agents.isEmpty ? TaskStatus.backlog : TaskStatus.queued);
+      final task = _makeTask(ch, title, brief: '', agent: agents.firstOrNull, status: agents.isEmpty ? TaskStatus.backlog : TaskStatus.queued, options: options.asTask);
       final m = _message(ch.id, text, taskId: task.id, replyTo: replyTo, files: attached);
       return {'message': m.toJson(), 'task': task.toJson()};
     }
 
     final m = _message(ch.id, text, replyTo: replyTo, files: attached);
     final tasks = <Map<String, Object?>>[];
-    for (final h in _handles(text).toSet()) {
-      final agent = resolveAgent(h);
-      if (agent == null) continue;
-      final task = _makeTask(ch, _titleFrom(text), brief: 'From #${ch.name}, $me wrote:\n\n$text', agent: agent, status: TaskStatus.queued, fromMessage: m.id);
+    // The picked agent and every @mention, once each.
+    final targets = <String, ({String id, String name, String deviceId})>{};
+    for (final a in [?picked, for (final h in _handles(text)) ?resolveAgent(h)]) {
+      targets[a.id] = a;
+    }
+    for (final agent in targets.values) {
+      final asking = mode != 'task';
+      final task = _makeTask(
+        ch,
+        asking ? '${mode == 'plan' ? 'Plan' : 'Question'}: ${_titleFrom(text)}' : _titleFrom(text),
+        brief: 'From #${ch.name}, $me wrote:\n\n$text',
+        agent: agent,
+        status: TaskStatus.queued,
+        fromMessage: m.id,
+        options: options,
+      );
       tasks.add(task.toJson());
       final where = agent.deviceId == ctx.deviceId ? '' : ' on ${_deviceName(agent.deviceId)}';
-      _message(ch.id, 'Made a task from that$where — starting as soon as a slot frees.',
-          authorKind: 'agent', author: agent.name, deviceId: agent.deviceId, taskId: task.id, replyTo: m.id);
+      _message(
+        ch.id,
+        switch (mode) {
+          'answer' => 'Looking into it$where…',
+          'plan' => 'Working on a plan$where; I\'ll post it here.',
+          _ => 'Made a task from that$where — starting as soon as a slot frees.',
+        },
+        authorKind: 'agent',
+        author: agent.name,
+        deviceId: agent.deviceId,
+        taskId: asking ? null : task.id,
+        replyTo: m.id,
+      );
     }
     return {'message': m.toJson(), 'tasks': tasks};
   }
@@ -194,9 +235,18 @@ class Channels {
   static bool _matches(String id, String name, String h) =>
       id.toLowerCase() == h || name.toLowerCase().replaceAll(' ', '-') == h || name.toLowerCase().split(' ').first == h;
 
-  Task _makeTask(Channel ch, String title, {required String brief, ({String id, String name, String deviceId})? agent, required String status, String? fromMessage}) {
+  Task _makeTask(Channel ch, String title, {required String brief, ({String id, String name, String deviceId})? agent, required String status, String? fromMessage, _Ask? options}) {
     final projectId = ch.projectId ?? (throw RpcError(RpcError.invalidParams, '#${ch.name} is not linked to a project board. Use a project\'s channel.'));
+    // A model name belongs to one CLI; teammates' agents are told it as is.
+    final adapter = agent == null ? null : ctx.agent(agent.id)?.adapter;
     return store.createTask(projectId, {
+      if (options != null) ...{
+        if (options.mode != 'task') 'ask': options.mode,
+        'model': ?options.model,
+        if (options.model != null) 'modelFor': ?adapter,
+        'effort': ?options.effort,
+        if (options.repoIds.isNotEmpty) 'repoIds': options.repoIds,
+      },
       'title': title.length > 90 ? '${title.substring(0, 87)}…' : title,
       'brief': brief,
       'status': status,
@@ -208,7 +258,7 @@ class Channels {
   }
 
   /// Run ended on this device for a task that came from a channel: the
-  /// agent reports back there.
+  /// agent reports back there (a question's answer is the report).
   void _maybeReport(Run run) {
     if (run.deviceId != ctx.deviceId || !RunStatus.isFinished(run.status)) return;
     if (run.data['channelReported'] == true) return;
@@ -351,4 +401,15 @@ class Channels {
     'json' => 'application/json',
     _ => 'application/octet-stream',
   };
+}
+
+/// What the composer's picker chose for a message.
+class _Ask {
+  const _Ask({this.model, this.effort, this.mode = 'task', this.repoIds = const []});
+  final String? model, effort;
+  final String mode;
+  final List<String> repoIds;
+
+  /// `/task` always puts work on the board.
+  _Ask get asTask => _Ask(model: model, effort: effort, repoIds: repoIds);
 }

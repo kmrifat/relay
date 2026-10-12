@@ -14,11 +14,12 @@ abstract final class Kind {
   static const device = 'device';
   static const channel = 'channel';
   static const message = 'message';
+  static const team = 'team';
 
-  static const all = [project, repo, task, comment, run, agent, change, rule, device, channel, message];
+  static const all = [project, repo, task, comment, run, agent, change, rule, device, channel, message, team];
 
-  /// Kinds shared with the team. Agent profiles and routing rules describe
-  /// this device's CLIs and preferences, so they stay local.
+  /// Kinds shared with the team. Agent profiles, agent teams and routing
+  /// rules describe this device's CLIs and preferences, so they stay local.
   static const synced = {project, repo, task, comment, run, change, device, channel, message};
 }
 
@@ -88,6 +89,7 @@ Entity entityFrom(String kind, Map<String, Object?> data) => switch (kind) {
   Kind.device => DeviceInfo(data),
   Kind.channel => Channel(data),
   Kind.message => Message(data),
+  Kind.team => Team(data),
   _ => throw ArgumentError('Unknown kind $kind'),
 };
 
@@ -106,6 +108,14 @@ class Project extends Entity {
   /// Repo ids in merge order (first merges first). Repos in the same step
   /// share a [Repo.mergeStep].
   int get position => intOr('position', 0);
+
+  /// What the product is for right now (design P01), e.g. "Checkout v1".
+  String get goal => str('goal') ?? '';
+
+  /// The milestone being worked towards: tasks with this [Task.milestone]
+  /// count towards it.
+  String get milestone => str('milestone') ?? '';
+  DateTime? get milestoneDue => _date(data['milestoneDue']);
 }
 
 /// One git repository in a project.
@@ -154,11 +164,12 @@ abstract final class TaskStatus {
 
   static const columns = [backlog, queued, running, review, done];
 
+  /// How the board names them (design P03); the stored values stay.
   static String label(String s) => switch (s) {
     backlog => 'Backlog',
-    queued => 'Queued',
-    running => 'Running',
-    review => 'Review',
+    queued => 'Ready',
+    running => 'In progress',
+    review => 'Review · QA',
     done => 'Done',
     _ => s,
   };
@@ -173,6 +184,8 @@ class PipelineStep {
     required this.assignee,
     this.note = '',
     this.status = 'pending',
+    this.model,
+    this.effort,
   });
 
   factory PipelineStep.fromJson(Map<String, Object?> j) => PipelineStep(
@@ -181,6 +194,8 @@ class PipelineStep {
     assignee: j['assignee'] as String? ?? '',
     note: j['note'] as String? ?? '',
     status: j['status'] as String? ?? 'pending',
+    model: j['model'] as String?,
+    effort: j['effort'] as String?,
   );
 
   final String name;
@@ -193,12 +208,17 @@ class PipelineStep {
   /// `pending`, `running`, `done`, `failed`, `skipped`.
   final String status;
 
+  /// Model and effort for this step's agent, over the task's and agent's.
+  final String? model, effort;
+
   PipelineStep withStatus(String s) => PipelineStep(
     name: name,
     assigneeKind: assigneeKind,
     assignee: assignee,
     note: note,
     status: s,
+    model: model,
+    effort: effort,
   );
 
   Map<String, Object?> toJson() => {
@@ -207,6 +227,8 @@ class PipelineStep {
     'assignee': assignee,
     'note': note,
     'status': status,
+    'model': ?model,
+    'effort': ?effort,
   };
 }
 
@@ -250,6 +272,20 @@ class Task extends Entity {
 
   /// When to start: `now`, `slot` (when a slot frees), or an ISO time.
   String get startAt => str('startAt') ?? 'slot';
+
+  /// Model and effort for whoever runs it, over the agent's defaults. A
+  /// model name belongs to one CLI ([modelFor], an adapter id); another
+  /// CLI ignores it.
+  String? get model => str('model');
+  String? get modelFor => str('modelFor');
+  String? get effort => str('effort');
+
+  /// The epic this task belongs to (a task with [isEpic]).
+  String? get parentId => str('parentId');
+  bool get isEpic => boolOr('epic', false);
+
+  /// The project milestone it counts towards (by name).
+  String? get milestone => str('milestone');
 
   /// Branch used in every repo the task touches.
   String branchName(String projectKey) => '${projectKey.toLowerCase()}-$number';
@@ -312,9 +348,47 @@ class Run extends Entity {
 
   /// Which pipeline step this run executes, or -1 when the task has none.
   int get pipelineStep => intOr('pipelineStep', -1);
+
+  /// What the CLI was started with; null means its own default.
+  String? get model => str('model');
+  String? get effort => str('effort');
+}
+
+/// What an agent may do (design P02 "Allowed to"). The MCP tools and the
+/// CLI's own tool switches follow them.
+abstract final class AgentCap {
+  static const editCode = 'editCode';
+  static const runShell = 'runShell';
+  static const createTasks = 'createTasks';
+  static const assign = 'assign';
+  static const postChannel = 'postChannel';
+  static const message = 'message';
+  static const merge = 'merge';
+
+  static const all = [editCode, runShell, createTasks, assign, postChannel, message, merge];
+
+  /// An agent nobody has set up: it codes, and files follow-ups as before.
+  static const defaults = {editCode, runShell, createTasks, message};
+
+  static String label(String c) => switch (c) {
+    editCode => 'Edit code',
+    runShell => 'Run shell',
+    createTasks => 'Create tasks',
+    assign => 'Assign teammates',
+    postChannel => 'Post in channels',
+    message => 'Message agents',
+    merge => 'Merge PRs',
+    _ => c,
+  };
 }
 
 /// A coding-agent CLI the user has on this device, and how Relay uses it.
+///
+/// It is either the CLI itself (id = adapter id, found by detection), or a
+/// role on top of one ([runtime] names that CLI's profile): its own name,
+/// role, model, effort, responsibilities and capabilities, sharing the
+/// CLI's install and its plan limits. Detection copies the CLI's path,
+/// version and offers onto its role agents.
 class AgentProfile extends Entity {
   const AgentProfile(super.data);
   @override
@@ -333,6 +407,14 @@ class AgentProfile extends Entity {
   /// Free text describing the plan, e.g. "Claude Max 5×".
   String get plan => str('plan') ?? '';
   String? get model => str('model');
+
+  /// Default reasoning effort, one of [efforts].
+  String? get effort => str('effort');
+
+  /// What the CLI offers (from its adapter, refreshed at detection): models
+  /// as {id, label, note} and effort levels, lowest first.
+  List<Map<String, Object?>> get models => maps('models');
+  List<String> get efforts => strings('efforts');
   List<String> get goodAt => strings('goodAt');
 
   /// For API-key agents: daily spend cap in USD (0 = none).
@@ -340,6 +422,47 @@ class AgentProfile extends Entity {
 
   /// When the plan's limit resets after being hit (ISO time), if known.
   DateTime? get limitedUntil => _date(data['limitedUntil']);
+
+  /// For a role agent: the CLI profile it runs on (e.g. `claude-code`).
+  String? get runtime => str('runtime');
+  bool get isRole => runtime != null;
+
+  /// The profile whose plan and limits this agent uses.
+  String get runtimeId => runtime ?? id;
+
+  /// "Project manager", "Sr backend dev"; empty for a plain CLI.
+  String get role => str('role') ?? '';
+
+  /// Added to every run's prompt.
+  String get responsibilities => str('responsibilities') ?? '';
+  String? get teamId => str('teamId');
+
+  Set<String> get caps => data['caps'] is List ? strings('caps').toSet() : AgentCap.defaults;
+  bool can(String cap) => caps.contains(cap);
+}
+
+/// A group of agents that work on some projects together (design P02):
+/// who hands work to whom, and whether its plans wait for your OK.
+class Team extends Entity {
+  const Team(super.data);
+  @override
+  String get kind => Kind.team;
+
+  String get name => str('name') ?? '';
+  String get color => str('color') ?? '#0A64D8';
+
+  /// Agent ids, in the order the team page lists them.
+  List<String> get members => strings('members');
+  List<String> get projectIds => strings('projectIds');
+
+  /// Handoffs: `{from, to}` agent ids; `you` is the person.
+  List<Map<String, Object?>> get edges => maps('edges');
+
+  /// The PM's plan waits for your OK before its tasks start (M14).
+  bool get planApproval => boolOr('planApproval', true);
+
+  /// The template it was made from, if any.
+  String? get template => str('template');
 }
 
 /// One repo's part of a task's change set.

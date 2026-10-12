@@ -70,20 +70,14 @@ To do it locally with your own keychain identity, export the same variables and 
 
 Relay is open source (decision 4), so releases and `appcast.xml` live on GitHub. `SPARKLE_FEED_URL` already points at `…/releases/latest/download/appcast.xml`, and `RELEASE_BASE_URL` defaults to this repo's releases.
 
-Updates stay off until:
+**On since 0.2.0.** Relay has its own update key, separate from DevVault's:
 
-- the repository is public, because the app can't fetch private release assets;
-- the update key is set (steps 1 and 3 below).
+- The private half is in the repo secret `SPARKLE_ED_PRIVATE_KEY`. It is also in the login Keychain of the Mac that made it, under Sparkle's account `relay` (`generate_keys --account relay -x <file>` exports it). Keep a copy in DevVault: without it no installed Relay can be updated again.
+- The public half is `SPARKLE_PUBLIC_ED_KEY` in `macos/Runner/Configs/AppInfo.xcconfig`.
 
-To turn them on:
+To move releases elsewhere, change `SPARKLE_FEED_URL` and set the repository variable `RELEASE_BASE_URL` (`<base>/v<version>/Relay-macos.dmg`).
 
-1. Make an update key with Sparkle's `generate_keys` (Sparkle 2.9.6, the version pinned in `macos/Podfile`).
-   - Store the private half, exported with `generate_keys -x`, as the secret `SPARKLE_ED_PRIVATE_KEY`.
-   - Put the public half in `macos/Runner/Configs/AppInfo.xcconfig` as `SPARKLE_PUBLIC_ED_KEY`.
-2. (Only when releases are hosted somewhere else.) Change `SPARKLE_FEED_URL`, and set the repository variable `RELEASE_BASE_URL` (`<base>/v<version>/Relay-macos.dmg`).
-3. Make the repository public.
-
-`macos_appcast.sh` writes `appcast.xml` with the DMG's EdDSA signature. Sparkle runs only when the person chooses **Check for Updates…** (Settings → This Mac). It checks the signature and the Developer ID team before it installs anything.
+`macos_appcast.sh` writes `appcast.xml` with the DMG's EdDSA signature. Sparkle starts with the app and looks once a day (Settings → This Mac → Check daily turns it off), or when the person chooses **Check for Updates…**. It never installs without asking. It checks the signature and the Developer ID team before it installs anything.
 
 An update replaces the app but not the relayd that is already running. The relaunched app replaces an older relayd with its bundled one. It waits for agent runs to finish first, and goes through the LaunchAgent when that is what started relayd ([protocol.md, After an update](protocol.md#after-an-update)).
 

@@ -24,6 +24,7 @@ relay — Relay's daemon, MCP server and command line
   relay mcp                    MCP server for your own agent (stdio): projects, tasks,
                                create a task. Add it with: claude mcp add relay -- relay mcp
   relay mcp --run RUN_ID       MCP server for an agent Relay started (stdio)
+  relay tool [NAME [JSON]]     the same tools from a shell (RELAY_RUN says whose)
   relay demo-agent             the built-in demo agent (stream-json)
   relay version
 ''';
@@ -48,6 +49,8 @@ Future<void> main(List<String> args) async {
         await _daemon(paths);
       case 'mcp':
         exitCode = await runMcpServer(_opt(rest, '--run') ?? Platform.environment['RELAY_RUN'], paths);
+      case 'tool':
+        exitCode = await runToolCli(_opt(rest, '--run') ?? Platform.environment['RELAY_RUN'], paths, [for (final a in rest) if (a != '--run' && a != _opt(rest, '--run')) a]);
       case 'demo-agent':
         exitCode = await runDemoAgent(rest);
       case 'version':

@@ -226,7 +226,10 @@ void main() {
     await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
     final task = await client.map(M.tasksCreate, {
       'projectId': pid,
-      'fields': {'title': 'Push me', 'assigneeKind': 'agent', 'assignee': 'demo', 'repoIds': [api['id']], 'status': 'queued'},
+      'fields': {
+        'title': 'Push me', 'assigneeKind': 'agent', 'assignee': 'demo', 'repoIds': [api['id']], 'status': 'queued',
+        'model': 'haiku', 'modelFor': 'demo', 'effort': 'xhigh',
+      },
     });
     await waitFor(() async {
       final t = (await client.map(M.tasksGet, {'id': task['id']}))['task'] as Map;
@@ -235,6 +238,10 @@ void main() {
     // A single-repo task starts in the repo; the workspace around it (PROJECT.md) is added.
     final runId = (((await client.map(M.tasksGet, {'id': task['id']}))['runs'] as List).last as Map)['id'];
     final events = await client.list(M.runsEvents, {'runId': runId});
+    // The run records and passes the task's model and effort.
+    final run = await client.map(M.runsGet, {'id': runId});
+    expect([run['model'], run['effort']], ['haiku', 'xhigh']);
+    expect((events.first['data'] as Map)['detail'], contains('(haiku, effort xhigh)'));
     final read = events.firstWhere((e) => e['type'] == 'tool_use' && (e['data'] as Map)['tool'] == 'Read');
     expect((read['data'] as Map)['summary'], endsWith('PROJECT.md'));
     expect(events.where((e) => e['type'] == 'tool_result').every((e) => (e['data'] as Map)['ok'] == true), isTrue);
@@ -243,6 +250,219 @@ void main() {
     final branches = await Git().run(bare, ['branch', '--format=%(refname:short)']);
     expect(branches, contains('kt-${task['number']}'));
     await client.call(M.settingsSet, {'values': {'askBeforeShell': 'true'}});
+  });
+
+  test('model and effort: this run, then the step, the task, the agent', () async {
+    final sup = daemon.supervisor;
+    final adapter = daemon.ctx.registry['demo']!;
+    final agent = AgentProfile({'id': 'demo', 'adapter': 'demo', 'model': 'opus', 'effort': 'low'});
+    Task task(Map<String, Object?> f) => Task({'id': 't', 'projectId': 'p', ...f});
+    expect(sup.modelFor(task({}), -1, agent, adapter), ('opus', 'low'));
+    expect(sup.modelFor(task({'model': 'haiku', 'effort': 'high'}), -1, agent, adapter), ('haiku', 'high'));
+    // A model picked for another CLI is not passed to this one.
+    expect(sup.modelFor(task({'model': 'gpt-5', 'modelFor': 'codex'}), -1, agent, adapter), ('opus', 'low'));
+    final piped = task({
+      'model': 'haiku',
+      'pipeline': [
+        {'name': 'plan', 'assignee': 'demo', 'status': 'pending', 'model': 'fable', 'effort': 'max'},
+      ],
+    });
+    expect(sup.modelFor(piped, 0, agent, adapter), ('fable', 'max'));
+    expect(sup.modelFor(piped, 0, agent, adapter, model: 'sonnet', effort: 'medium'), ('sonnet', 'medium'));
+    // An effort the CLI doesn't have is dropped, not passed.
+    expect(sup.modelFor(task({'effort': 'turbo'}), -1, agent, adapter), ('opus', 'low'));
+    final listed = (await client.list(M.agentsList)).firstWhere((a) => a['id'] == 'demo');
+    expect(listed['efforts'], ['low', 'medium', 'high', 'xhigh', 'max']);
+  });
+
+  test('teams: a product squad of role agents on one CLI, each with its model, role and limits', () async {
+    final pid = (await client.list(M.projectsList)).first['id'] as String;
+    final templates = await client.list(M.teamsTemplates);
+    expect(templates.map((t) => t['id']), containsAll(['product-squad', 'solo-builder', 'bug-crew']));
+    final team = await client.map(M.teamsCreate, {'name': 'Kitchenly squad', 'template': 'product-squad', 'projectIds': [pid], 'runtime': 'demo'});
+    final members = (team['members'] as List).cast<String>();
+    expect(members, ['pria', 'bram', 'faye', 'quinn']);
+    expect((team['edges'] as List).first, {'from': 'you', 'to': 'pria'});
+    final agents = {for (final a in await client.list(M.agentsList)) a['id']: AgentProfile(a)};
+    final pria = agents['pria']!, bram = agents['bram']!, quinn = agents['quinn']!;
+    expect([pria.runtime, pria.role, pria.model, pria.effort, pria.binaryPath], ['demo', 'Project manager', 'opus', 'high', agents['demo']!.binaryPath]);
+    expect([bram.model, quinn.model, quinn.effort], ['sonnet', 'haiku', 'low']);
+    expect(pria.can(AgentCap.editCode), isFalse);
+    expect(bram.can(AgentCap.editCode), isTrue);
+    expect(pria.efforts, isNotEmpty); // the CLI's offers came along
+    // Teammates see who is on the squad, not its prompts.
+    final me = DeviceInfo((await client.list(M.devicesList)).firstWhere((d) => d['id'] == client.hello['deviceId']));
+    final shared = me.agents.firstWhere((a) => a['id'] == 'pria');
+    expect([shared['role'], shared['team'], shared['model']], ['Project manager', 'Kitchenly squad', 'opus']);
+    expect(shared.containsKey('responsibilities'), isFalse);
+
+    // The PM's prompt carries its role; its run can't edit (Claude-style flags).
+    final sup = daemon.supervisor;
+    final task = Task({'id': 'x', 'projectId': pid, 'number': 99, 'title': 'Plan refunds'});
+    final prompt = sup.buildPrompt(task, -1, '/tmp', pria);
+    expect(prompt, contains('You are Pria, Project manager'));
+    expect(prompt, contains('## Your role'));
+    expect(prompt, contains("you don't change code"));
+    expect(prompt, isNot(contains('Commit your changes')));
+
+    // A limit hit by one agent on the CLI holds back all of them.
+    sup.setLimited('bram', DateTime.now().add(const Duration(hours: 1)));
+    final limited = {for (final a in await client.list(M.agentsList)) a['id']: a['limitedUntil']};
+    expect([limited['demo'], limited['pria'], limited['quinn']].every((v) => v != null), isTrue);
+    sup.setLimited('demo', null);
+    expect((await client.list(M.agentsList)).every((a) => a['limitedUntil'] == null), isTrue);
+
+    // Two role agents on the same CLI run side by side, each with its model.
+    final repos = await client.list(M.reposList, {'projectId': pid});
+    final api = repos.firstWhere((r) => r['name'] == 'api');
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
+    final ids = <String>[];
+    for (final who in ['bram', 'quinn']) {
+      final t = await client.map(M.tasksCreate, {
+        'projectId': pid,
+        'fields': {'title': 'Role run $who', 'assigneeKind': 'agent', 'assignee': who, 'repoIds': [api['id']], 'status': 'queued'},
+      });
+      ids.add(t['id'] as String);
+    }
+    final runs = await waitFor(() async {
+      final rs = (await client.list(M.runsList)).where((r) => ids.contains(r['taskId'])).toList();
+      return rs.length == 2 ? rs : null;
+    });
+    expect({for (final r in runs) r['agentId']: r['model']}, {'bram': 'sonnet', 'quinn': 'haiku'});
+    for (final id in ids) {
+      await waitFor(() async => ((await client.map(M.tasksGet, {'id': id}))['task'] as Map)['status'] == 'review' ? true : null);
+    }
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'true'}});
+
+    // A repo that asks first holds the task until a person starts it.
+    await client.call(M.reposUpdate, {'id': api['id'], 'fields': {'agentPolicy': 'ask'}});
+    final held = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Needs an OK', 'assigneeKind': 'agent', 'assignee': 'bram', 'repoIds': [api['id']], 'status': 'queued'},
+    });
+    final waiting = await waitFor(() async {
+      final t = (await client.map(M.tasksGet, {'id': held['id']}))['task'] as Map;
+      return t['attention'] == 'approval' ? t : null;
+    });
+    expect(waiting['question'], contains('api'));
+    expect((await client.list(M.runsList)).where((r) => r['taskId'] == held['id']), isEmpty);
+    await client.call(M.reposUpdate, {'id': api['id'], 'fields': {'agentPolicy': 'auto'}});
+    await client.call(M.tasksDelete, {'id': held['id']});
+
+    // Deleting the team removes its role agents, not the CLI.
+    await client.call(M.teamsDelete, {'id': team['id']});
+    final left = (await client.list(M.agentsList)).map((a) => a['id']).toSet();
+    expect(left.intersection({'pria', 'bram', 'faye', 'quinn'}), isEmpty);
+    expect(left, contains('demo'));
+    await expectLater(client.call(M.agentsDelete, {'id': 'demo'}), throwsA(isA<RpcError>()));
+  });
+
+  test('collaboration: mailbox, plans, build → QA → back → QA → review, PM answers questions, limits', () async {
+    final pid = (await client.list(M.projectsList)).first['id'] as String;
+    final api = (await client.list(M.reposList, {'projectId': pid})).firstWhere((r) => r['name'] == 'api');
+    final team = await client.map(M.teamsCreate, {'name': 'Collab squad', 'template': 'product-squad', 'projectIds': [pid], 'runtime': 'demo'});
+    final ids = (team['members'] as List).cast<String>();
+    final (pm, be, fe, qa) = (ids[0], ids[1], ids[2], ids[3]);
+    await client.call(M.settingsSet, {'values': {'askBeforeShell': 'false'}});
+    Future<Map> task(String id) async => (await client.map(M.tasksGet, {'id': id}))['task'] as Map;
+
+    // Plan: drafts wait in Backlog; approving queues them in order.
+    final anchorTask = await client.map(M.tasksCreate, {'projectId': pid, 'fields': {'title': 'Refunds epic', 'status': 'backlog'}});
+    final plan = await client.map(M.plansPropose, {
+      'agentId': pm,
+      'fromTask': anchorTask['id'],
+      'summary': 'API first, then QA.',
+      'tasks': [
+        {'title': 'Refund endpoint', 'assignee': 'backend', 'doneWhen': ['tests pass']},
+        {'title': 'Test refunds', 'assignee': 'QA', 'after': [0]},
+      ],
+    });
+    expect(plan['approved'], isFalse);
+    final drafts = (await client.list(M.tasksList)).where((t) => t['planId'] == plan['planId']).toList()..sort((a, b) => (a['number'] as int).compareTo(b['number'] as int));
+    expect(drafts.map((t) => [t['status'], t['assignee'], t['draft']]), [['backlog', be, true], ['backlog', qa, true]]);
+    expect(drafts[1]['dependsOn'], [drafts[0]['id']]);
+    final card = (await client.list(M.messagesList, {'channelId': Channel.idFor(pid)})).firstWhere((m) => m['id'] == plan['planId']);
+    expect([card['tag'], card['planState'], (card['items'] as List).length], ['plan', 'proposed', 2]);
+    // Paused team: approving queues them, nothing starts.
+    await client.call(M.teamsUpdate, {'id': team['id'], 'fields': {'paused': true}});
+    expect(await client.call(M.plansApprove, {'planId': plan['planId']}), 2);
+    await Future<void>.delayed(const Duration(seconds: 3));
+    expect((await client.list(M.runsList)).where((r) => r['taskId'] == drafts[0]['id']), isEmpty);
+    expect((await task(drafts[0]['id'] as String))['status'], 'queued');
+    for (final d in drafts) {
+      await client.call(M.tasksDelete, {'id': d['id']});
+    }
+    await client.call(M.teamsUpdate, {'id': team['id'], 'fields': {'paused': false}});
+
+    // Handoffs: the backend's work goes to QA, a fail goes back, a pass goes to review.
+    final work = await client.map(M.tasksCreate, {
+      'projectId': pid,
+      'fields': {'title': 'Refund API', 'assigneeKind': 'agent', 'assignee': be, 'repoIds': [api['id']], 'status': 'queued'},
+    });
+    final wid = work['id'] as String;
+    await waitFor(() async => (await task(wid))['assignee'] == qa ? true : null, timeout: const Duration(seconds: 60));
+    // QA reports a failure while it checks.
+    await client.call(M.agentsReport, {'taskId': wid, 'agentId': qa, 'kind': 'test', 'passed': 3, 'failed': 1, 'details': 'zero-decimal currencies'});
+    final back = await waitFor(() async {
+      final t = await task(wid);
+      return t['assignee'] == be && t['rounds'] == 1 ? t : null;
+    }, timeout: const Duration(seconds: 60));
+    expect(back['handoffNote'], contains('found problems'));
+    final done = await waitFor(() async {
+      final t = await task(wid);
+      return t['status'] == 'review' ? t : null;
+    }, timeout: const Duration(seconds: 90));
+    expect(done['assignee'], qa);
+    final agentsRan = (await client.list(M.runsList)).where((r) => r['taskId'] == wid).map((r) => r['agentId']).toList();
+    expect(agentsRan, [be, qa, be, qa]);
+    final runBe = (await client.list(M.runsList)).firstWhere((r) => r['taskId'] == wid && r['agentId'] == be);
+
+    // A dev's question goes to the PM, who is idle, so Relay wakes the PM.
+    final tools = RelayTools(RelayPaths(home), runBe['id'] as String);
+    final asked = await tools.call('relay_ask', {'question': 'Line item or new order?'});
+    expect(asked, contains('Asked Pria'));
+    final wake = await waitFor(() async => (await client.list(M.tasksList)).where((t) => t['assignee'] == pm && (t['tags'] as List? ?? []).contains('message')).firstOrNull);
+    expect(wake['brief'], contains('Line item or new order?'));
+    // The backend may not assign work or propose plans.
+    expect(() => tools.call('relay_propose_plan', {'tasks': [{'title': 'x'}]}), throwsA(isA<RpcError>()));
+    expect((await tools.list()).map((t) => t['name']), isNot(contains('relay_propose_plan')));
+    final team2 = await tools.call('relay_team', {});
+    expect(team2, allOf(contains('Pria'), contains('QA engineer'), contains('(you)')));
+    await tools.close();
+
+    // The same tools from a shell, for CLIs without MCP.
+    final shell = await Process.run(relayBin, ['tool', 'relay_team'], environment: {'RELAY_RUN': runBe['id'] as String, 'RELAY_HOME': home});
+    expect(shell.exitCode, 0, reason: '${shell.stderr}');
+    expect(shell.stdout, contains('Quinn'));
+
+    // A message to a busy agent waits for its next run's prompt.
+    await client.call(M.tasksCreate, {'projectId': pid, 'fields': {'title': 'Busy work', 'assigneeKind': 'agent', 'assignee': fe, 'status': 'backlog'}});
+    final queuedFe = await client.map(M.tasksCreate, {'projectId': pid, 'fields': {'title': 'UI', 'assigneeKind': 'agent', 'assignee': fe, 'repoIds': [api['id']], 'status': 'queued', 'startAt': DateTime.now().add(const Duration(hours: 1)).toUtc().toIso8601String()}});
+    final said = await client.call<String>(M.agentsMessage, {'from': be, 'to': 'frontend', 'text': 'RefundLine changed', 'taskId': wid});
+    expect(said, contains('next run'));
+    await client.call(M.tasksUpdate, {'id': queuedFe['id'], 'fields': {'startAt': 'now'}});
+    final feRun = await waitFor(() async => (await client.list(M.runsList)).where((r) => r['taskId'] == queuedFe['id']).firstOrNull);
+    expect((await client.map(M.runsGet, {'id': feRun['id']}))['prompt'], contains('Bram: RefundLine changed'));
+
+    // Limits: tasks an agent makes per hour, and ping-pong between two agents.
+    await client.call(M.settingsSet, {'values': {'maxAgentTasksPerHour': '1', 'maxAgentExchanges': '3'}});
+    await client.call(M.agentsCreateTask, {'agentId': qa, 'fromTask': wid, 'fields': {'title': 'bug 1'}});
+    await expectLater(client.call(M.agentsCreateTask, {'agentId': qa, 'fromTask': wid, 'fields': {'title': 'bug 2'}}), throwsA(isA<RpcError>()));
+    await expectLater(() async {
+      for (var i = 0; i < 4; i++) {
+        await client.call(M.agentsMessage, {'from': qa, 'to': be, 'text': 'ping $i', 'taskId': wid});
+      }
+    }(), throwsA(isA<RpcError>()));
+    await client.call(M.settingsSet, {'values': {'maxAgentTasksPerHour': '20', 'maxAgentExchanges': '12', 'askBeforeShell': 'true'}});
+    // The activity feed has it all: messages between agents, handoffs, QA's report, runs.
+    final feed = await client.list(M.activityList, {'projectId': pid});
+    final kinds = feed.map((e) => e['kind']).toSet();
+    expect(kinds, containsAll(['agent-message', 'handoff', 'report', 'run']));
+    expect(feed.firstWhere((e) => e['kind'] == 'agent-message')['toName'], isNotNull);
+    for (final r in (await client.list(M.runsList)).where((r) => RunStatus.isActive('${r['status']}'))) {
+      await client.call(M.runsStop, {'runId': r['id']});
+    }
+    await client.call(M.teamsDelete, {'id': team['id']});
   });
 
   test('time limit stops a run; a spend cap keeps an agent from starting', () async {
@@ -360,7 +580,7 @@ void main() {
 
     await call('initialize', {'protocolVersion': '2025-06-18', 'capabilities': {}, 'clientInfo': {'name': 'claude-code'}});
     final names = ((await call('tools/list', {}))['tools'] as List).map((t) => t['name']).toList();
-    expect(names, containsAll(['relay_projects', 'relay_tasks', 'relay_create_task', 'relay_task_status']));
+    expect(names, containsAll(['relay_projects', 'relay_tasks', 'relay_create_task', 'relay_task_status', 'relay_update_task']));
     expect(names, isNot(contains('relay_progress'))); // that one needs a run
 
     final (projects, _) = await tool('relay_projects', {});
@@ -400,6 +620,24 @@ void main() {
     expect(list, contains('$key  backlog  Rate limit the share endpoint'));
     final (status, _) = await tool('relay_task_status', {'task': key});
     expect(status, allOf(contains('status: backlog'), contains('assigned to demo'), contains('[ ] 429 after ten requests')));
+
+    // A person's own agent reports progress on a task it is doing itself.
+    final (updated, upErr) = await tool('relay_update_task', {
+      'task': key,
+      'status': 'running',
+      'check': [0],
+      'addDoneWhen': ['Docs say so'],
+      'note': 'Started on the limiter.',
+    });
+    expect(upErr, isFalse, reason: updated);
+    expect(updated, allOf(contains('checklist 1/2'), contains('note posted'), contains('moved to running')));
+    final (after, _) = await tool('relay_task_status', {'task': key});
+    expect(after, allOf(contains('status: running'), contains('[x] 429 after ten requests'), contains('[ ] Docs say so'), contains('Claude Code: Started on the limiter.')));
+    final (badItem, badErr) = await tool('relay_update_task', {'task': key, 'check': [7]});
+    expect(badErr, isTrue);
+    expect(badItem, contains('No "done when" item 7'));
+    final (all, _) = await tool('relay_update_task', {'task': key, 'check': 'all'});
+    expect(all, contains('checklist 2/2'));
 
     await proc.stdin.close();
     proc.kill();

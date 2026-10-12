@@ -40,11 +40,13 @@ class Workspaces {
     final branch = task.branchName(project.key);
     final folder = folderFor(task);
     Directory(folder).createSync(recursive: true);
+    // A question asked in a channel touches nothing: every repo is a
+    // read-only copy and the agent starts in the folder around them.
     final touched = ctx.touchedRepos(task);
-    if (touched.isEmpty) {
+    final all = ctx.reposOf(task.projectId);
+    if (touched.isEmpty && (task.str('ask') == null || all.isEmpty)) {
       throw RpcError(RpcError.invalidParams, '${project.name} has no repositories yet. Add one under Repos.');
     }
-    final all = ctx.reposOf(task.projectId);
     for (final repo in all) {
       final source = repo.pathOn(ctx.deviceId);
       final target = p.join(folder, _dirName(repo));

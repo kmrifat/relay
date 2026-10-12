@@ -72,6 +72,23 @@ abstract final class M {
   static const agentsDetect = 'agents.detect';
   static const agentsUpdate = 'agents.update';
   static const agentsMessage = 'agents.message';
+  static const agentsCreate = 'agents.create';
+  static const agentsDelete = 'agents.delete';
+  static const teamsList = 'teams.list';
+  static const teamsTemplates = 'teams.templates';
+  static const teamsCreate = 'teams.create';
+  static const teamsUpdate = 'teams.update';
+  static const teamsDelete = 'teams.delete';
+
+  /// M14: agents working together.
+  static const agentsMail = 'agents.mail';
+  static const agentsReport = 'agents.report';
+  static const agentsCreateTask = 'agents.createTask';
+  static const agentsPost = 'agents.post';
+  static const plansPropose = 'plans.propose';
+  static const plansApprove = 'plans.approve';
+  static const plansReject = 'plans.reject';
+  static const activityList = 'activity.list';
   static const rulesList = 'rules.list';
   static const rulesSave = 'rules.save';
   static const rulesDelete = 'rules.delete';

@@ -17,6 +17,8 @@ class GenericAdapter extends AgentAdapter {
     required this.color,
     required this.letter,
     this.goodAt = const [],
+    this.models = const [],
+    this.efforts = const [],
   });
 
   @override
@@ -31,16 +33,32 @@ class GenericAdapter extends AgentAdapter {
   final String letter;
   @override
   final List<String> goodAt;
+  @override
+  final List<ModelOption> models;
+  @override
+  final List<String> efforts;
 
-  /// argv with `{prompt}`, `{cwd}` and `{model}` placeholders.
+  /// argv with `{prompt}`, `{cwd}`, `{model}` and `{effort}` placeholders.
   final List<String> defaultArgs;
 
-  static List<String> fill(List<String> template, RunSpec spec) => [
-    for (final a in template)
-      if (!(a == '{model}' && spec.model == null))
-        a.replaceAll('{prompt}', spec.prompt).replaceAll('{cwd}', spec.cwd).replaceAll('{model}', spec.model ?? ''),
-    ...spec.extraArgs,
-  ];
+  /// The template filled in. A `{model}` or `{effort}` with no value is left
+  /// out together with the flag in front of it (`-m {model}` → nothing).
+  static List<String> fill(List<String> template, RunSpec spec) {
+    final out = <String>[];
+    for (final a in template) {
+      final unset = (a == '{model}' && spec.model == null) || (a == '{effort}' && spec.effort == null);
+      if (unset) {
+        if (out.isNotEmpty && out.last.startsWith('-')) out.removeLast();
+        continue;
+      }
+      out.add(a
+          .replaceAll('{prompt}', spec.prompt)
+          .replaceAll('{cwd}', spec.cwd)
+          .replaceAll('{model}', spec.model ?? '')
+          .replaceAll('{effort}', spec.effort ?? ''));
+    }
+    return [...out, ...spec.extraArgs];
+  }
 
   @override
   Future<AgentSession> start(RunSpec spec) async {
@@ -101,23 +119,24 @@ class GenericSession extends ProcessSession {
   }
 }
 
-/// Gemini CLI: `gemini -p <prompt> --yolo` (non-interactive).
+/// Gemini CLI: `gemini -p <prompt> --yolo [-m model]` (non-interactive).
 GenericAdapter geminiAdapter() => GenericAdapter(
   id: 'gemini',
   name: 'Gemini CLI',
   binaries: const ['gemini'],
-  defaultArgs: const ['-p', '{prompt}', '--yolo'],
+  defaultArgs: const ['-p', '{prompt}', '--yolo', '-m', '{model}'],
   color: '#8944AB',
   letter: 'G',
   goodAt: const ['long context', 'docs'],
 );
 
-/// OpenCode (any provider, e.g. DeepSeek): `opencode run <prompt>`.
+/// OpenCode (any provider, e.g. DeepSeek):
+/// `opencode run <prompt> [--model provider/model]`.
 GenericAdapter openCodeAdapter() => GenericAdapter(
   id: 'opencode',
   name: 'OpenCode',
   binaries: const ['opencode'],
-  defaultArgs: const ['run', '{prompt}'],
+  defaultArgs: const ['run', '{prompt}', '--model', '{model}'],
   color: '#4D6BFE',
   letter: 'O',
   goodAt: const ['tests', 'cheap bulk work'],
@@ -128,8 +147,9 @@ GenericAdapter aiderAdapter() => GenericAdapter(
   id: 'aider',
   name: 'Aider',
   binaries: const ['aider'],
-  defaultArgs: const ['--message', '{prompt}', '--yes-always', '--no-pretty', '--no-stream'],
+  defaultArgs: const ['--message', '{prompt}', '--yes-always', '--no-pretty', '--no-stream', '--model', '{model}', '--reasoning-effort', '{effort}'],
   color: '#1F9D55',
   letter: 'A',
   goodAt: const ['small focused edits'],
+  efforts: const ['low', 'medium', 'high'],
 );

@@ -7,6 +7,7 @@ import 'package:relay_protocol/relay_protocol.dart';
 import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import 'model_picker.dart';
 import '../../ui/platform.dart';
 
 /// The agent fleet (design T03): CLIs on this Mac, usage, slots, routing.
@@ -43,7 +44,8 @@ class _FleetPageState extends ConsumerState<FleetPage> {
   Widget build(BuildContext context) {
     final c = context.c;
     final data = ref.watch(dataProvider);
-    final agents = data.agents;
+    // The CLIs; role agents are on their team's page.
+    final agents = data.clis;
     final installed = agents.where((a) => a.binaryPath != null).toList();
     final missing = agents.where((a) => a.binaryPath == null).toList();
     final active = data.all<Run>(Kind.run).where((r) => RunStatus.isActive(r.status)).length;
@@ -200,6 +202,19 @@ class _AgentCard extends ConsumerWidget {
             ]),
           ),
         ],
+        const SizedBox(height: 8),
+        Row(children: [
+          SizedBox(width: 76, child: Text('Default', style: context.t(12, color: c.text2))),
+          Expanded(
+            child: ModelEffortPicker(
+              agent: a,
+              model: a.model,
+              effort: a.effort,
+              inherited: a.model == null && a.effort == null ? 'the CLI\'s own' : null,
+              onChanged: (m, e) => update({'model': m, 'effort': e}),
+            ),
+          ),
+        ]),
         const SizedBox(height: 8),
         Row(children: [
           SizedBox(width: 76, child: Text('Slots', style: context.t(12, color: c.text2))),

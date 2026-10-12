@@ -12,7 +12,12 @@ import '../data/system.dart';
 import '../data/notifications.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
+import '../features/ask/ask_palette.dart';
 import '../features/channel/channel_page.dart';
+import '../features/code/code_session.dart';
+import '../features/help/keyboard_map.dart';
+import '../features/home/activity_page.dart';
+import '../features/home/mission_control.dart';
 import '../features/onboarding/onboarding_page.dart';
 import '../features/agents/fleet_page.dart';
 import '../features/project/project_dialogs.dart';
@@ -20,10 +25,13 @@ import '../features/project/project_page.dart';
 import '../features/settings/settings_page.dart';
 import '../features/smart/smart_list_page.dart';
 import '../features/task/new_task_sheet.dart';
+import '../features/teams/team_page.dart';
 import '../features/task/quick_find.dart';
 import '../features/task/task_page.dart';
 import '../ui/widgets.dart';
 import '../ui/platform.dart';
+import '../ui/split.dart';
+import 'commands.dart';
 import 'sidebar.dart';
 import 'theme.dart';
 import 'upgrade_banner.dart';
@@ -79,9 +87,17 @@ class _ShellState extends ConsumerState<Shell> {
   /// so adding the first repo doesn't end it early).
   bool _onboarding = false;
 
+  final _sidebarFocus = FocusNode(debugLabel: 'sidebar');
+  ModalRoute<Object?>? _route;
+  final _contentFocus = idleFocusNode(debugLabel: 'content', skipTraversal: true);
+  final _rootFocus = idleFocusNode(debugLabel: 'shell');
+
   @override
   void initState() {
     super.initState();
+    // Off while a dialog, sheet or menu is in front of the shell.
+    Commands.instance.enabled = () => mounted && (_route?.isCurrent ?? true);
+    HardwareKeyboard.instance.addHandler(Commands.instance.handleKey);
     SystemBridge.instance
       ..init()
       ..onMenu = (action, args) async {
@@ -112,6 +128,66 @@ class _ShellState extends ConsumerState<Shell> {
         if (info['channelId'] is String) n.channel(info['channelId'] as String);
         if (info['taskId'] is String) n.openTask(info['taskId'] as String);
       };
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(Commands.instance.handleKey);
+    Commands.instance.unregister();
+    _sidebarFocus.dispose();
+    _contentFocus.dispose();
+    _rootFocus.dispose();
+    super.dispose();
+  }
+
+  /// What each command does (commands.dart has the keys).
+  Map<String, VoidCallback> _handlers(DataSnapshot data, NavState nav) {
+    final n = ref.read(navProvider.notifier);
+    String? projectId() => nav.projectId ?? data.projects.firstOrNull?.id;
+    void view(ProjectView v) {
+      final id = projectId();
+      if (id == null) return;
+      if (nav.projectId == null) n.project(id);
+      n.view(v);
+    }
+
+    return {
+      Cmd.quickFind: () => showQuickFind(context, ref),
+      Cmd.askAgent: () => showAskPalette(context, ref),
+      Cmd.home: () => n.page(AppPage.home),
+      Cmd.activity: () => n.page(AppPage.activity),
+      for (var i = 0; i < data.projects.length && i < 9; i++) Cmd.project(i): () => n.project(data.projects[i].id),
+      Cmd.needsYou: () => n.page(AppPage.waiting),
+      Cmd.agents: () => n.page(AppPage.agents),
+      Cmd.back: n.back,
+      Cmd.forward: n.forward,
+      Cmd.settings: () => n.page(AppPage.settings),
+      Cmd.keyboardMap: () => showKeyboardMap(context),
+      for (var i = 0; i < ProjectView.values.length; i++) Cmd.view(i): () => view(ProjectView.values[i]),
+      Cmd.newTask: () => showNewTaskSheet(context, ref),
+      Cmd.toggleTerminal: () async {
+        final id = projectId();
+        if (id == null) return;
+        final s = ref.read(codeSessionProvider(id));
+        final inCode = nav.page == AppPage.project && nav.view == ProjectView.code && nav.taskId == null && nav.projectId == id;
+        if (inCode && s.panelOpen) {
+          s.togglePanel();
+          _focusContent();
+          return;
+        }
+        view(ProjectView.code);
+        if (!s.panelOpen) s.togglePanel();
+        if (s.terms.isEmpty && s.restored) await s.newTerminal(Desk.shellName);
+        s.focusTerminal();
+      },
+      Cmd.leaveFocus: _focusContent,
+      Cmd.switchPane: () => _sidebarFocus.hasFocus ? _focusContent() : _sidebarFocus.requestFocus(),
+    };
+  }
+
+  void _focusContent() {
+    _contentFocus.requestFocus();
+    focusContent.value++;
   }
 
   @override
@@ -194,28 +270,42 @@ class _ShellState extends ConsumerState<Shell> {
         AppPage.agents => const FleetPage(),
         AppPage.settings => const SettingsPage(),
         AppPage.channel => nav.channelId == null ? const SettingsPage() : ChannelPage(channelId: nav.channelId!),
+        AppPage.team => nav.teamId == null ? const FleetPage() : TeamPage(teamId: nav.teamId!, agentId: nav.agentId),
+        AppPage.home => const MissionControl(),
+        AppPage.activity => const ActivityPage(),
       };
+    }
+
+    _route = ModalRoute.of(context);
+    if (_onboarding) {
+      Commands.instance.unregister();
+    } else {
+      Commands.instance.register(_handlers(data, nav));
     }
 
     return CallbackShortcuts(
       bindings: {
-        Desk.key(LogicalKeyboardKey.keyN): () => showNewTaskSheet(context, ref),
-        Desk.key(LogicalKeyboardKey.keyK): () => showQuickFind(context, ref),
         const SingleActivator(LogicalKeyboardKey.escape): () => ref.read(navProvider.notifier).closeTask(),
       },
       child: Focus(
+        focusNode: _rootFocus,
         autofocus: true,
         child: Scaffold(
-          body: _onboarding ? OnboardingPage(onDone: () => setState(() => _onboarding = false)) : Column(children: [
-            const UpgradeBanner(),
-            Expanded(
-              child: Row(children: [
-                const SizedBox(width: 220, child: Sidebar()),
-                Container(width: 1, color: context.c.separator),
-                Expanded(child: content),
-              ]),
-            ),
-          ]),
+          body: _onboarding
+              ? OnboardingPage(onDone: () => setState(() => _onboarding = false))
+              : Column(children: [
+                  const UpgradeBanner(),
+                  Expanded(
+                    child: ResizableSplit(
+                      id: 'shell.sidebar',
+                      initial: 220,
+                      min: 180,
+                      keepOther: 640,
+                      first: Sidebar(focusNode: _sidebarFocus),
+                      second: Focus(focusNode: _contentFocus, child: content),
+                    ),
+                  ),
+                ]),
         ),
       ),
     );

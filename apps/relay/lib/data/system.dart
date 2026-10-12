@@ -76,4 +76,8 @@ class SystemBridge {
 
   Future<bool> canUpdate() async => await _call<bool>(_updater, 'isAvailable') ?? false;
   Future<void> checkForUpdates() => _call<void>(_updater, 'check');
+
+  /// The daily look for an update (on unless the person turned it off).
+  Future<bool> autoCheck() async => await _call<bool>(_updater, 'autoCheck') ?? false;
+  Future<void> setAutoCheck(bool on) => _call<void>(_updater, 'setAutoCheck', {'on': on});
 }

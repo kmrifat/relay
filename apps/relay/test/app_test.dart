@@ -47,6 +47,9 @@ Future<RelayClient> fakeRelayd({bool phone = false, bool paired = true, bool fir
     M.tasksList: (_) => tasks,
     M.agentsList: (_) => agents,
     M.rulesList: (_) => [],
+    M.teamsList: (_) => [],
+    M.teamsTemplates: (_) => [],
+    M.activityList: (_) => [],
     M.runsList: (_) => [],
     M.runsEvents: (_) => [],
     M.workspacesList: (_) => [
@@ -95,8 +98,13 @@ Future<void> settleUntil(WidgetTester tester, Finder finder) async {
   }
 }
 
+/// The desktop app over [client]; it starts on the first project's board
+/// (the real app opens on Mission control).
 Widget app(RelayClient client) => ProviderScope(
-  overrides: [clientProvider.overrideWithValue(client)],
+  overrides: [
+    clientProvider.overrideWithValue(client),
+    navProvider.overrideWith(() => NavNotifier(const NavState(page: AppPage.project))),
+  ],
   child: MaterialApp(theme: buildTheme(Brightness.dark), home: const Shell()),
 );
 
@@ -116,7 +124,11 @@ void main() {
     expect(find.text('shared'), findsWidgets);
     expect(find.text('Approve & merge'), findsOneWidget);
 
+    // A click peeks at the card beside the board; Open goes to the task.
     await tester.tap(find.text('Share a recipe with a link'));
+    await tester.pumpAndSettle();
+    expect(find.text('KT-1 · Review · QA · shared, api, app'), findsOneWidget);
+    await tester.tap(find.text('Open'));
     await settleUntil(tester, find.text('Done. Wrote the share link.'));
     expect(find.text('KT-1 · Share a recipe with a link'), findsOneWidget);
     expect(find.text('Change set'), findsOneWidget);

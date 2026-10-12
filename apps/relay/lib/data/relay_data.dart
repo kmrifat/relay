@@ -159,12 +159,20 @@ class DataSnapshot {
 
   List<Project> get projects => all<Project>(Kind.project).toList()..sort((a, b) => a.position.compareTo(b.position));
   List<AgentProfile> get agents => all<AgentProfile>(Kind.agent).toList()..sort((a, b) => a.name.compareTo(b.name));
+
+  /// The CLIs found on this computer (not the role agents on top of them).
+  List<AgentProfile> get clis => agents.where((a) => !a.isRole).toList();
+  List<Team> get teams => all<Team>(Kind.team).toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  Team? teamOf(AgentProfile a) => a.teamId == null ? null : get<Team>(Kind.team, a.teamId);
   List<Repo> reposOf(String projectId) => all<Repo>(Kind.repo).where((r) => r.projectId == projectId).toList()
     ..sort((a, b) {
       final s = a.mergeStep.compareTo(b.mergeStep);
       return s != 0 ? s : a.name.compareTo(b.name);
     });
-  List<Task> tasksOf(String? projectId) => all<Task>(Kind.task).where((t) => projectId == null || t.projectId == projectId).toList();
+  /// The project's tasks (every project's for null). Questions asked in a
+  /// channel (`ask`) are runs, not work: they live in the thread only.
+  List<Task> tasksOf(String? projectId) =>
+      all<Task>(Kind.task).where((t) => (projectId == null || t.projectId == projectId) && t.data['ask'] == null).toList();
   List<Run> runsOf(String taskId) => all<Run>(Kind.run).where((r) => r.taskId == taskId).toList()..sort((a, b) => a.id.compareTo(b.id));
   List<ChangeEntry> changesOf(String taskId) => all<ChangeEntry>(Kind.change).where((c) => c.taskId == taskId).toList();
   /// Team devices (this Mac included), most recently seen first.
@@ -221,10 +229,19 @@ class DataNotifier extends Notifier<DataSnapshot> {
       Kind.run: M.runsList,
       Kind.device: M.devicesList,
       Kind.channel: M.channelsList,
+      Kind.team: M.teamsList,
     };
     final next = <String, Map<String, Entity>>{for (final k in Kind.all) k: {}};
     for (final e in kinds.entries) {
-      for (final j in await client.list(e.value)) {
+      final List<Map<String, Object?>> items;
+      try {
+        items = await client.list(e.value);
+      } on RpcError catch (err) {
+        // An older relayd still running (teams came in 0.2): show the rest.
+        if (err.code == RpcError.methodNotFound) continue;
+        rethrow;
+      }
+      for (final j in items) {
         next[e.key]![j['id'] as String] = entityFrom(e.key, _withLocal(e.key, j));
       }
     }

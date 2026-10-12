@@ -82,7 +82,10 @@ class DaemonContext {
       });
 
   /// Repos a task changes: its own list, else the project's first repo.
+  /// The repos [t] changes. A question asked in a channel (`ask`) changes
+  /// none: the agent reads read-only copies.
   List<Repo> touchedRepos(Task t) {
+    if (t.str('ask') != null) return const [];
     final all = reposOf(t.projectId);
     if (t.repoIds.isEmpty) return all.isEmpty ? const [] : [all.first];
     return all.where((r) => t.repoIds.contains(r.id)).toList();

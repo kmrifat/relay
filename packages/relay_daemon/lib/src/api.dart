@@ -10,6 +10,7 @@ import 'context.dart';
 import 'repo_inspect.dart';
 import 'channels.dart';
 import 'supervisor.dart';
+import 'teams.dart';
 import 'sync_service.dart';
 import 'terminals.dart';
 import 'workspaces.dart';
@@ -25,6 +26,7 @@ class Api {
   final SyncService sync;
   final Channels channels;
   final DateTime startedAt;
+  late final teams = Teams(ctx);
 
   Store get store => ctx.store;
 
@@ -216,8 +218,48 @@ class Api {
         final r = ctx.run(_s(p, 'id'));
         return {...r.toJson(), 'live': supervisor.isLive(r.id), 'canSteer': supervisor.session(r.id)?.canSteer ?? false};
       },
-      M.agentsMessage: (p) {
-        supervisor.messageAgent(_s(p, 'taskId'), _s(p, 'from'), _s(p, 'to'), _s(p, 'text'));
+      M.agentsMessage: (p) => supervisor.collab.message(_s(p, 'from'), _s(p, 'to'), _s(p, 'text'), taskId: p['taskId'] as String?),
+      M.agentsMail: (p) => _json(supervisor.collab.mailSince(_s(p, 'agentId'), DateTime.tryParse(p['since'] as String? ?? '') ?? DateTime(2000))),
+      M.agentsReport: (p) {
+        // QA's verdict: a fail sends the task back to whoever built it.
+        final t = ctx.task(_s(p, 'taskId'));
+        final failed = (p['failed'] as num?)?.toInt() ?? 0;
+        final passed = (p['passed'] as num?)?.toInt() ?? 0;
+        final agent = ctx.agent(_s(p, 'agentId'));
+        store.patch<Task>(Kind.task, t.id, {'verdict': failed > 0 ? 'failed' : 'passed'});
+        return store.create<Comment>(Kind.comment, {
+          'taskId': t.id,
+          'authorKind': 'agent',
+          'author': agent?.name ?? p['agentId'],
+          'agentId': p['agentId'],
+          'report': {'kind': p['kind'] ?? 'test', 'passed': passed, 'failed': failed},
+          'body': '${failed > 0 ? '✗' : '✓'} ${p['kind'] ?? 'test'}: $passed passed, $failed failed.${(p['details'] as String? ?? '').trim().isEmpty ? '' : '\n\n${(p['details'] as String).trim()}'}',
+        }).toJson();
+      },
+      M.agentsCreateTask: (p) {
+        final agent = ctx.agent(_s(p, 'agentId')) ?? (throw RpcError(RpcError.notFound, 'No agent'));
+        return supervisor.collab.createTask(agent, ctx.task(_s(p, 'fromTask')), _m(p, 'fields')).toJson();
+      },
+      M.agentsPost: (p) {
+        final agent = ctx.agent(_s(p, 'agentId'));
+        final ch = store.get<Channel>(Kind.channel, _s(p, 'channelId')) ?? (throw RpcError(RpcError.notFound, 'No channel'));
+        return store.create<Message>(Kind.message, {
+          'channelId': ch.id,
+          'authorKind': 'agent',
+          'author': agent?.name ?? p['agentId'],
+          'deviceId': ctx.deviceId,
+          'body': _s(p, 'text'),
+          'taskId': ?p['taskId'],
+        }).toJson();
+      },
+      M.plansPropose: (p) {
+        final agent = ctx.agent(_s(p, 'agentId')) ?? (throw RpcError(RpcError.notFound, 'No agent'));
+        return supervisor.collab.proposePlan(agent, ctx.task(_s(p, 'fromTask')), p['summary'] as String? ?? '', ((p['tasks'] as List?) ?? const []).map((e) => (e as Map).cast<String, Object?>()).toList());
+      },
+      M.plansApprove: (p) => supervisor.collab.approvePlan(_s(p, 'planId')),
+      M.activityList: (p) => activity(ctx, projectId: p['projectId'] as String?, limit: (p['limit'] as num?)?.toInt() ?? 100),
+      M.plansReject: (p) {
+        supervisor.collab.rejectPlan(_s(p, 'planId'));
         return true;
       },
       M.runsEvents: (p) {
@@ -240,8 +282,11 @@ class Api {
           final where = store.get<DeviceInfo>(Kind.device, active.deviceId!)?.name ?? 'another device';
           throw RpcError(RpcError.invalidParams, '${ctx.taskKey(t)} is running on $where.');
         }
-        if (t.str('runOn') != ctx.deviceId) store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId, 'attention': null});
-        return (await supervisor.startRun(t.id, agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?)).toJson();
+        // Starting it by hand is also the OK a repo that asks first wants.
+        store.patch<Task>(Kind.task, t.id, {'runOn': ctx.deviceId, 'attention': null, 'approved': true});
+        return (await supervisor.startRun(t.id,
+                agentId: p['agentId'] as String?, extraPrompt: p['note'] as String?, model: p['model'] as String?, effort: p['effort'] as String?))
+            .toJson();
       },
       M.runsSteer: (p) {
         supervisor.steer(_s(p, 'runId'), _s(p, 'text'));
@@ -279,9 +324,36 @@ class Api {
         return found;
       },
       M.agentsUpdate: (p) {
-        final a = store.patch<AgentProfile>(Kind.agent, _s(p, 'id'), _m(p, 'fields'));
+        final fields = _m(p, 'fields');
+        final a = store.patch<AgentProfile>(Kind.agent, _s(p, 'id'), fields);
+        // A role moved to another CLI takes that CLI's install with it.
+        if (fields.containsKey('runtime')) teams.syncRuntimes();
+        sync.publishDevice();
+        return ctx.agent(a.id)!.toJson();
+      },
+      M.agentsCreate: (p) {
+        final a = teams.createAgent(_m(p, 'fields'));
         sync.publishDevice();
         return a.toJson();
+      },
+      M.agentsDelete: (p) {
+        teams.deleteAgent(_s(p, 'id'));
+        sync.publishDevice();
+        return true;
+      },
+      M.teamsList: (_) => _json(store.list<Team>(Kind.team)..sort((a, b) => a.createdAt.compareTo(b.createdAt))),
+      M.teamsTemplates: (_) => [for (final t in teamTemplates) t.toJson()],
+      M.teamsCreate: (p) {
+        final t = teams.create(_s(p, 'name'),
+            templateId: p['template'] as String?, projectIds: ((p['projectIds'] as List?) ?? const []).cast<String>(), runtime: p['runtime'] as String?);
+        sync.publishDevice();
+        return t.toJson();
+      },
+      M.teamsUpdate: (p) => store.patch<Team>(Kind.team, _s(p, 'id'), _m(p, 'fields')).toJson(),
+      M.teamsDelete: (p) {
+        teams.delete(_s(p, 'id'), keepAgents: p['keepAgents'] == true);
+        sync.publishDevice();
+        return true;
       },
       M.rulesList: (_) => _json(store.list<RoutingRule>(Kind.rule)..sort((a, b) => a.order.compareTo(b.order))),
       M.rulesSave: (p) {
@@ -351,6 +423,11 @@ class Api {
         p['body'] as String? ?? '',
         replyTo: p['replyTo'] as String?,
         files: ((p['files'] as List?) ?? const []).cast<String>(),
+        agent: p['agent'] as String?,
+        model: p['model'] as String?,
+        effort: p['effort'] as String?,
+        mode: p['mode'] as String? ?? 'task',
+        repoIds: ((p['repoIds'] as List?) ?? const []).cast<String>(),
       ),
       M.messagesReact: (p) {
         channels.react(_s(p, 'messageId'), _s(p, 'emoji'), p['on'] != false);
@@ -538,17 +615,94 @@ Future<List<Map<String, Object?>>> detectAgents(DaemonContext ctx) async {
         'color': adapter.color,
         'letter': adapter.letter,
         'goodAt': adapter.goodAt,
+        'models': [for (final m in adapter.models) m.toJson()],
+        'efforts': adapter.efforts,
       });
     } else {
-      ctx.store.patch<AgentProfile>(Kind.agent, d.adapter, {'binaryPath': d.binaryPath, 'version': d.version});
+      ctx.store.patch<AgentProfile>(Kind.agent, d.adapter, {
+        'binaryPath': d.binaryPath,
+        'version': d.version,
+        // What the CLI offers can change with a Relay update.
+        'models': [for (final m in adapter.models) m.toJson()],
+        'efforts': adapter.efforts,
+      });
     }
   }
   // Agents no longer on PATH stay listed but can't start.
   for (final a in ctx.store.list<AgentProfile>(Kind.agent)) {
-    if (a.adapter == 'demo') continue;
+    if (a.adapter == 'demo' || a.isRole) continue;
     if (!found.any((d) => d.adapter == a.adapter) && a.binaryPath != null) {
       ctx.store.patch<AgentProfile>(Kind.agent, a.id, {'binaryPath': null});
     }
   }
+  Teams(ctx).syncRuntimes();
   return [for (final d in found) d.toJson()];
+}
+
+/// What happened lately (M15-04), newest first: agents messaging each other,
+/// agent notes and reports, handoffs, agents posting in channels, and runs
+/// that ended.
+List<Map<String, Object?>> activity(DaemonContext ctx, {String? projectId, int limit = 100}) {
+  final store = ctx.store;
+  final since = DateTime.now().toUtc().subtract(const Duration(days: 2));
+  String? projectOf(String? taskId) => taskId == null ? null : store.get<Task>(Kind.task, taskId)?.projectId;
+  String? key(String? taskId) {
+    final t = taskId == null ? null : store.get<Task>(Kind.task, taskId);
+    return t == null ? null : ctx.taskKey(t);
+  }
+
+  final out = <Map<String, Object?>>[];
+  for (final c in store.list<Comment>(Kind.comment)) {
+    if (!c.createdAt.isAfter(since) || c.authorKind == 'person') continue;
+    final kind = c.to != null
+        ? 'agent-message'
+        : c.data['report'] != null
+            ? 'report'
+            : c.authorKind == 'system'
+                ? 'handoff'
+                : 'note';
+    out.add({
+      'kind': kind,
+      'at': c.createdAt.toIso8601String(),
+      'taskId': c.data['taskId'],
+      'key': key(c.data['taskId'] as String?),
+      'projectId': projectOf(c.data['taskId'] as String?),
+      'from': c.data['agentId'] ?? c.author,
+      'fromName': c.author,
+      'to': c.to,
+      'toName': c.to == null ? null : ctx.agent(c.to!)?.name ?? c.to,
+      'text': c.body,
+    });
+  }
+  for (final m in store.list<Message>(Kind.message)) {
+    if (m.authorKind != 'agent' || !m.createdAt.isAfter(since)) continue;
+    out.add({
+      'kind': 'post',
+      'at': m.createdAt.toIso8601String(),
+      'taskId': m.taskId,
+      'key': key(m.taskId),
+      'projectId': store.get<Channel>(Kind.channel, m.channelId)?.projectId,
+      'fromName': m.author,
+      'channelId': m.channelId,
+      'text': m.body,
+    });
+  }
+  for (final r in store.list<Run>(Kind.run)) {
+    final ended = r.endedAt;
+    if (ended == null || !ended.isAfter(since)) continue;
+    out.add({
+      'kind': 'run',
+      'at': ended.toIso8601String(),
+      'taskId': r.taskId,
+      'key': key(r.taskId),
+      'projectId': projectOf(r.taskId),
+      'from': r.agentId,
+      'fromName': ctx.agent(r.agentId)?.name ?? r.agentId,
+      'status': r.status,
+      'text': r.summary ?? r.error ?? r.status,
+    });
+  }
+  final mine = projectId == null ? out : out.where((e) => e['projectId'] == projectId).toList();
+  mine.sort((a, b) => '${b['at']}'.compareTo('${a['at']}'));
+  return mine.take(limit).toList();
 }

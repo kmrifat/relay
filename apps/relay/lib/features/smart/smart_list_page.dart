@@ -21,7 +21,7 @@ class SmartListPage extends ConsumerWidget {
       AppPage.inbox => ('Inbox', 'Questions, permission requests, failures and work to review'),
       AppPage.running => ('Running now', 'Tasks an agent is working on'),
       AppPage.review => ('Needs review', 'Finished by an agent, waiting for a person'),
-      AppPage.waiting => ('Waiting on you', 'Agents paused until you answer'),
+      AppPage.waiting => ('Needs you', 'Questions, permissions and OKs agents are waiting for'),
       _ => ('', ''),
     };
     return Column(children: [

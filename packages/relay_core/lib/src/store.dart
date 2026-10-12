@@ -140,6 +140,8 @@ class Store {
       ...data,
       'id': id,
       'createdAt': data['createdAt'] ?? now,
+      // A chosen id may be one that was deleted (an agent named again).
+      if (data['id'] != null) 'deleted': null,
     });
   }
 

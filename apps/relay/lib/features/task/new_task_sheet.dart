@@ -10,6 +10,8 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../agents/model_picker.dart';
+import 'task_bits.dart';
 
 Future<void> showNewTaskSheet(BuildContext context, WidgetRef ref, {String? status, String? brief}) async {
   final data = ref.read(dataProvider);
@@ -32,6 +34,7 @@ class _Step {
   String kind; // agent | person
   String assignee;
   String note;
+  String? model, effort;
 }
 
 class _NewTask extends ConsumerStatefulWidget {
@@ -52,6 +55,11 @@ class _NewTaskState extends ConsumerState<_NewTask> {
   late Set<String> repoIds = {?widget.repoFilter};
   List<Map<String, Object?>> suggestions = [];
   String assignee = 'auto'; // auto | agent id | me
+  String? model, effort; // for the assigned agent's CLI; null = its default
+  final after = <String>{}; // task ids it waits for
+  String? parentId; // its epic
+  bool isEpic = false;
+  bool? inMilestone; // null: yes when the project has a milestone
   bool pipeline = false;
   late List<_Step> steps;
   String start = 'slot'; // now | slot | tonight | backlog
@@ -109,13 +117,22 @@ class _NewTaskState extends ConsumerState<_NewTask> {
       'startAt': switch (start) { 'tonight' => tonight.toUtc().toIso8601String(), 'now' => 'now', _ => 'slot' },
       if (stopAfter > 0) 'stopAfterMinutes': stopAfter,
       if (pipeline)
-        'pipeline': [for (final s in steps) {'name': s.name, 'assigneeKind': s.kind, 'assignee': s.assignee, 'note': s.note, 'status': 'pending'}]
+        'pipeline': [
+          for (final s in steps)
+            {'name': s.name, 'assigneeKind': s.kind, 'assignee': s.assignee, 'note': s.note, 'status': 'pending', 'model': ?s.model, 'effort': ?s.effort},
+        ]
       else if (assignee == 'me')
         ...{'assigneeKind': 'person', 'assignee': userName}
       else if (assignee.startsWith('dev:'))
         ...{'assigneeKind': 'agent', 'assignee': assignee.split(':')[2], 'runOn': assignee.split(':')[1]}
       else
         ...{'assigneeKind': 'agent', 'assignee': assignee},
+      if (!pipeline && _agent != null) ...{'model': ?model, 'modelFor': ?(model == null ? null : _agent!.adapter), 'effort': ?effort},
+      if (after.isNotEmpty) 'dependsOn': after.toList(),
+      'parentId': ?parentId,
+      if (isEpic) 'epic': true,
+      if ((inMilestone ?? true) && ref.read(dataProvider).get<Project>(Kind.project, projectId)!.milestone.isNotEmpty)
+        'milestone': ref.read(dataProvider).get<Project>(Kind.project, projectId)!.milestone,
     };
     try {
       final t = await client.map(M.tasksCreate, {'projectId': projectId, 'fields': fields});
@@ -129,6 +146,65 @@ class _NewTaskState extends ConsumerState<_NewTask> {
       setState(() => error = e.message);
     }
   }
+
+  /// Tasks this one waits for (it starts when they are done).
+  Widget _afterPicker(BuildContext context, DataSnapshot data) {
+    final open = data.tasksOf(projectId).where((t) => t.status != TaskStatus.done && !after.contains(t.id)).toList()
+      ..sort((a, b) => b.number.compareTo(a.number));
+    return Wrap(spacing: 6, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      for (final id in after)
+        if (data.get<Task>(Kind.task, id) case final t?)
+          InputChip(
+            label: Text('${data.keyOf(t)} ${t.title}', style: context.t(11)),
+            onDeleted: () => setState(() => after.remove(id)),
+            visualDensity: VisualDensity.compact,
+          ),
+      Builder(builder: (context) => Btn(after.isEmpty ? 'Starts on its own' : 'Add', small: true, icon: LucideIcons.link, onTap: open.isEmpty ? null : () async {
+        final box = context.findRenderObject() as RenderBox;
+        final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [for (final t in open.take(20)) (t.id, '${data.keyOf(t)}  ${t.title}', null)]);
+        if (v != null) setState(() => after.add(v));
+      })),
+    ]);
+  }
+
+  /// The epic it belongs to, whether it is one, and the milestone.
+  Widget _epicPicker(BuildContext context, DataSnapshot data, Project project) {
+    final epics = data.tasksOf(projectId).where((t) => t.isEpic && t.status != TaskStatus.done).toList();
+    final epic = data.get<Task>(Kind.task, parentId);
+    final c = context.c;
+    return Wrap(spacing: 10, runSpacing: 6, crossAxisAlignment: WrapCrossAlignment.center, children: [
+      if (!isEpic)
+        Builder(builder: (context) => Btn(epic == null ? 'No epic' : 'Epic: ${epic.title}', small: true, icon: LucideIcons.layers, onTap: () async {
+          final box = context.findRenderObject() as RenderBox;
+          final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
+            ('', 'No epic', null),
+            for (final t in epics) (t.id, '${data.keyOf(t)}  ${t.title}', null),
+          ]);
+          if (v != null) setState(() => parentId = v.isEmpty ? null : v);
+        })),
+      _check(context, 'This is an epic', isEpic, (v) => setState(() {
+        isEpic = v;
+        if (v) parentId = null;
+      })),
+      if (project.milestone.isNotEmpty) _check(context, 'Counts towards ${project.milestone}', inMilestone ?? true, (v) => setState(() => inMilestone = v)),
+      if (epics.isEmpty && !isEpic) Text('Epics group tasks into swimlanes on the board.', style: context.t(11, color: c.text3)),
+    ]);
+  }
+
+  Widget _check(BuildContext context, String label, bool on, ValueChanged<bool> onChanged) => Pressable(
+    onTap: () => onChanged(!on),
+    builder: (context, hover, focus) => Container(
+      foregroundDecoration: focusRing(context, focus, 4),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Icon(on ? LucideIcons.squareCheck : LucideIcons.square, size: 14, color: on ? context.c.accentIcon : context.c.text3),
+        const SizedBox(width: 6),
+        Text(label, style: context.t(12)),
+      ]),
+    ),
+  );
+
+  /// The local agent picked as the one assignee, if any.
+  AgentProfile? get _agent => ref.read(dataProvider).agents.where((a) => a.id == assignee && a.binaryPath != null).firstOrNull;
 
   @override
   Widget build(BuildContext context) {
@@ -220,6 +296,8 @@ class _NewTaskState extends ConsumerState<_NewTask> {
               ]), top: true),
             row('Brief', FieldInput(controller: brief, minLines: 3, maxLines: 8, hint: 'What should be done, constraints, where to look'), top: true),
             row('Tags', FieldInput(controller: tags, hint: '#tests, #ui (routing rules can use tags)', size: 12)),
+            row('After', _afterPicker(context, data)),
+            row('Epic', _epicPicker(context, data, project)),
             const Hairline(),
             const SizedBox(height: 12),
             row('Who', Row(children: [
@@ -231,11 +309,17 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                     final box = context.findRenderObject() as RenderBox;
                     final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
                       ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
-                      for (final a in agents) (a.id, a.name, LucideIcons.bot),
+                      for (final a in agents) (a.id, agentLabel(a), a.isRole ? LucideIcons.userRound : LucideIcons.bot),
                       for (final (d, a) in shared) ('dev:${d.id}:${a['id']}', '${a['name']} · ${d.person.isEmpty ? d.name : d.person}', LucideIcons.monitorSmartphone),
                       ('me', 'Me', LucideIcons.user),
                     ]);
-                    if (v != null) setState(() => assignee = v);
+                    if (v != null) {
+                      setState(() {
+                        assignee = v;
+                        model = null;
+                        effort = null;
+                      });
+                    }
                   },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -259,6 +343,17 @@ class _NewTaskState extends ConsumerState<_NewTask> {
                   ),
                 )),
             ])),
+            if (!pipeline && _agent != null)
+              row('Model', ModelEffortPicker(
+                agent: _agent,
+                model: model,
+                effort: effort,
+                inherited: agentDefaults(_agent!),
+                onChanged: (m, e) => setState(() {
+                  model = m;
+                  effort = e;
+                }),
+              )),
             if (pipeline)
               row('Steps', Column(children: [
                 for (var i = 0; i < steps.length; i++) _stepRow(context, i, agents),
@@ -302,9 +397,10 @@ class _NewTaskState extends ConsumerState<_NewTask> {
     final c = context.c;
     final s = steps[i];
     final userName = ref.read(clientProvider).hello['userName'] as String? ?? 'You';
+    final agent = s.kind == 'agent' ? agents.where((a) => a.id == s.assignee).firstOrNull : null;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Row(children: [
         Container(
           width: 22,
           height: 22,
@@ -321,11 +417,13 @@ class _NewTaskState extends ConsumerState<_NewTask> {
           onTap: () async {
             final box = context.findRenderObject() as RenderBox;
             final v = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
-              for (final a in agents) ('agent:${a.id}', a.name, LucideIcons.bot),
+              for (final a in agents) ('agent:${a.id}', agentLabel(a), a.isRole ? LucideIcons.userRound : LucideIcons.bot),
               ('person', 'A person ($userName)', LucideIcons.user),
             ]);
             if (v == null) return;
             setState(() {
+              s.model = null;
+              s.effort = null;
               if (v == 'person') {
                 s.kind = 'person';
                 s.assignee = userName;
@@ -348,6 +446,21 @@ class _NewTaskState extends ConsumerState<_NewTask> {
           ),
         )),
         IconBtn(LucideIcons.x, size: 12, onTap: steps.length > 1 ? () => setState(() => steps.removeAt(i)) : null),
+      ]),
+        if (agent != null)
+          Padding(
+            padding: const EdgeInsets.only(left: 32, top: 6),
+            child: ModelEffortPicker(
+              agent: agent,
+              model: s.model,
+              effort: s.effort,
+              inherited: agentDefaults(agent),
+              onChanged: (m, e) => setState(() {
+                s.model = m;
+                s.effort = e;
+              }),
+            ),
+          ),
       ]),
     );
   }

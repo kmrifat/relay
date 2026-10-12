@@ -78,7 +78,11 @@ class CodeSession extends ChangeNotifier {
   final terms = <TermTab>[];
   int activeTerm = -1;
   bool panelOpen = true;
-  double panelHeight = 270;
+
+  /// Bumped when the terminal should take keyboard focus: a new terminal,
+  /// Take over, a tab clicked, the panel opened by hand. Never on its own,
+  /// so opening the Code view doesn't steal keys from the app.
+  final termFocus = ValueNotifier(0);
 
   bool _restoring = false;
   bool restored = false;
@@ -103,7 +107,6 @@ class CodeSession extends ChangeNotifier {
       // Nothing usable saved.
     }
     panelOpen = saved['panelOpen'] as bool? ?? true;
-    panelHeight = (saved['panelHeight'] as num?)?.toDouble() ?? 270;
     expanded.addAll((saved['expanded'] as List? ?? const []).cast<String>());
 
     for (final t in (saved['terms'] as List? ?? const []).cast<Map>()) {
@@ -140,7 +143,6 @@ class CodeSession extends ChangeNotifier {
         'terms': [for (final t in terms) t.toJson()],
         'activeTerm': activeTerm,
         'panelOpen': panelOpen,
-        'panelHeight': panelHeight,
       };
       _client.call(M.uiSet, {'key': _key, 'value': jsonEncode(state)}).catchError((Object _) => true);
     });
@@ -280,15 +282,19 @@ class CodeSession extends ChangeNotifier {
     _changed();
   }
 
-  void resizePanel(double height) {
-    panelHeight = height;
-    notifyListeners();
-    _save();
+  /// Set until the Code view has given the terminal focus; it may not be
+  /// on screen yet when asked (⌃` from another view).
+  bool wantsTermFocus = false;
+
+  void focusTerminal() {
+    wantsTermFocus = true;
+    termFocus.value++;
   }
 
   @override
   void dispose() {
     _saveTimer?.cancel();
+    termFocus.dispose();
     for (final f in files) {
       f.dispose();
     }

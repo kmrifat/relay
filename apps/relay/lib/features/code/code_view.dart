@@ -28,7 +28,9 @@ import 'package:re_highlight/re_highlight.dart';
 import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
+import '../../app/commands.dart';
 import '../../app/theme.dart';
+import '../../ui/split.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
 import '../../ui/platform.dart';
@@ -82,10 +84,36 @@ class CodeView extends ConsumerStatefulWidget {
 
 class _CodeViewState extends ConsumerState<CodeView> {
   CodeSession get session => ref.read(codeSessionProvider(widget.projectId));
+  final _termFocus = typingFocusNode(debugLabel: 'terminal');
+  final _editorFocus = typingFocusNode(debugLabel: 'editor');
+  late final CodeSession _session;
+
+  void _focusTerm([int tries = 0]) => WidgetsBinding.instance.addPostFrameCallback((_) {
+    if (!mounted || !_session.wantsTermFocus) return;
+    // No terminal on screen yet (one is still starting): try a few frames.
+    if (_termFocus.context == null) {
+      if (tries < 30) _focusTerm(tries + 1);
+      return;
+    }
+    _session.wantsTermFocus = false;
+    _termFocus.requestFocus();
+  });
+
+  void _onTermFocus() => _focusTerm();
+
+  @override
+  void dispose() {
+    _session.termFocus.removeListener(_onTermFocus);
+    _termFocus.dispose();
+    _editorFocus.dispose();
+    super.dispose();
+  }
 
   @override
   void initState() {
     super.initState();
+    _session = session..termFocus.addListener(_onTermFocus);
+    if (_session.wantsTermFocus) _focusTerm();
     WidgetsBinding.instance.addPostFrameCallback((_) => _guard(() async {
       final roots = codeRoots(ref.read(dataProvider), widget.projectId);
       final s = session;
@@ -148,6 +176,7 @@ class _CodeViewState extends ConsumerState<CodeView> {
     final s = session;
     s.togglePanel();
     if (s.panelOpen && s.terms.isEmpty) await _guard(() => s.newTerminal(Desk.shellName));
+    if (s.panelOpen) s.focusTerminal();
   }
 
   @override
@@ -176,12 +205,14 @@ class _CodeViewState extends ConsumerState<CodeView> {
         Desk.key(LogicalKeyboardKey.keyW): () {
           if (s.active >= 0) _closeFile(s.active);
         },
-        const SingleActivator(LogicalKeyboardKey.backquote, control: true): _togglePanel,
       },
-      child: Row(children: [
+      child: ResizableSplit(
+        id: 'code.explorer',
+        initial: 250,
+        min: 160,
+        keepOther: 360,
         // Explorer.
-        Container(
-          width: 250,
+        first: Container(
           color: c.bar,
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Padding(
@@ -228,12 +259,17 @@ class _CodeViewState extends ConsumerState<CodeView> {
             Expanded(child: _tree(context, s)),
           ]),
         ),
-        Container(width: 1, color: c.separator),
         // Editor + panel.
-        Expanded(
-          child: LayoutBuilder(builder: (context, box) {
-            final panelHeight = s.panelHeight.clamp(120.0, (box.maxHeight - 160).clamp(120.0, double.infinity));
-            return Column(children: [
+        second: ResizableSplit(
+          id: 'code.terminal',
+          axis: Axis.vertical,
+          sized: SplitSide.second,
+          initial: 270,
+          min: 120,
+          keepOther: 160,
+          dividerColor: c.inner,
+          collapsedTo: s.panelOpen ? null : 30,
+          first: Column(children: [
               Container(
                 height: 34,
                 color: c.bar,
@@ -272,6 +308,7 @@ class _CodeViewState extends ConsumerState<CodeView> {
                     ? Center(child: Text('Open a file from the explorer. ${Desk.isMac ? '⌘S saves, ⌘W closes' : 'Ctrl+S saves, Ctrl+W closes'}.', style: context.t(12, color: c.text3)))
                     : CodeEditor(
                         key: ValueKey('${s.rootPath}/${file.path}'),
+                        focusNode: _editorFocus,
                         controller: file.controller,
                         readOnly: file.readOnly,
                         wordWrap: false,
@@ -300,20 +337,10 @@ class _CodeViewState extends ConsumerState<CodeView> {
                         ]),
                       ),
               ),
-              // Drag to resize the panel.
-              MouseRegion(
-                cursor: s.panelOpen ? SystemMouseCursors.resizeRow : MouseCursor.defer,
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onVerticalDragUpdate: s.panelOpen ? (d) => s.resizePanel((panelHeight - d.delta.dy).clamp(120.0, box.maxHeight - 160)) : null,
-                  child: Container(height: 5, alignment: Alignment.bottomCenter, child: Container(height: 1, color: c.inner)),
-                ),
-              ),
-              SizedBox(height: s.panelOpen ? panelHeight : 30, child: root == null ? const SizedBox() : _panel(context, s, root, run, agent)),
-            ]);
-          }),
+          ]),
+          second: root == null ? const SizedBox() : _panel(context, s, root, run, agent),
         ),
-      ]),
+      ),
     );
   }
 
@@ -343,24 +370,32 @@ class _CodeViewState extends ConsumerState<CodeView> {
                   onTap: () {
                     s.selectTerm(i);
                     if (!s.panelOpen) s.togglePanel();
+                    s.focusTerminal();
                   },
                   onClose: () => _guard(() => s.closeTerminal(i)),
                 ),
             ]),
           ),
-          IconBtn(LucideIcons.plus, size: 13, tooltip: 'New terminal', onTap: () => _guard(() => s.newTerminal(Desk.shellName))),
+          IconBtn(LucideIcons.plus, size: 13, tooltip: 'New terminal', onTap: () => _guard(() async {
+            await s.newTerminal(Desk.shellName);
+            s.focusTerminal();
+          })),
           Builder(builder: (context) => IconBtn(LucideIcons.bookmark, size: 13, tooltip: 'Saved commands', onTap: () => _savedCommands(context, s, term))),
           IconBtn(s.panelOpen ? LucideIcons.chevronDown : LucideIcons.chevronUp, size: 13, tooltip: s.panelOpen ? 'Hide terminal (Ctrl+`)' : 'Show terminal (Ctrl+`)', onTap: _togglePanel),
         ]),
       ),
       if (s.panelOpen)
         Expanded(
-          child: Row(children: [
-            Expanded(
-              child: Container(
+          child: _withMirror(
+            context,
+            run,
+            Container(
                 color: c.codeBg,
                 child: term == null
-                    ? Center(child: Btn('New terminal', icon: LucideIcons.squareTerminal, onTap: () => _guard(() => s.newTerminal(Desk.shellName))))
+                    ? Center(child: Btn('New terminal', icon: LucideIcons.squareTerminal, onTap: () => _guard(() async {
+                        await s.newTerminal(Desk.shellName);
+                        s.focusTerminal();
+                      })))
                     : Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                         Padding(
                           padding: const EdgeInsets.fromLTRB(10, 6, 10, 0),
@@ -371,15 +406,12 @@ class _CodeViewState extends ConsumerState<CodeView> {
                             style: context.t(11, color: c.text3),
                           ),
                         ),
-                        Expanded(child: RelayTerminal(key: ValueKey(term.id), session: term)),
+                        Expanded(child: RelayTerminal(key: ValueKey(term.id), session: term, focusNode: _termFocus)),
                       ]),
               ),
-            ),
-            if (run != null) ...[
-              Container(width: 1, color: c.inner),
-              SizedBox(
-                width: 420,
-                child: Container(
+            run == null
+                ? null
+                : Container(
                   color: context.isDark ? const Color(0xFF1F1A18) : c.box,
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     Padding(
@@ -399,19 +431,34 @@ class _CodeViewState extends ConsumerState<CodeView> {
                         else if (RunStatus.isActive(run.status)) ...[
                           Btn(run.status == RunStatus.paused ? 'Resume' : 'Pause', small: true, onTap: () => client.call(run.status == RunStatus.paused ? M.runsResume : M.runsPause, {'runId': run.id})),
                           const SizedBox(width: 6),
-                          Btn('Take over', small: true, kind: BtnKind.primary, icon: LucideIcons.hand, onTap: () => _guard(() => s.takeover(run.id, agent?.name ?? 'the agent'))),
+                          Btn('Take over', small: true, kind: BtnKind.primary, icon: LucideIcons.hand, onTap: () => _guard(() async {
+                            await s.takeover(run.id, agent?.name ?? 'the agent');
+                            s.focusTerminal();
+                          })),
                         ],
                       ]),
                     ),
                     Expanded(child: _AgentMirror(runId: run.id)),
                   ]),
                 ),
-              ),
-            ],
-          ]),
+          ),
         ),
     ]);
   }
+
+  /// The terminal, with the agent's mirror beside it while a run is shown.
+  Widget _withMirror(BuildContext context, Run? run, Widget terminal, Widget? mirror) => mirror == null
+      ? terminal
+      : ResizableSplit(
+          id: 'code.mirror',
+          sized: SplitSide.second,
+          initial: 420,
+          min: 260,
+          keepOther: 240,
+          dividerColor: context.c.inner,
+          first: terminal,
+          second: mirror,
+        );
 
   /// The saved-commands menu: run one in the open terminal, save a new one,
   /// or remove one.

@@ -50,12 +50,19 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `tasks.suggestRepos` | `{projectId, text, repoIds}` | `[{repoId, name, reason}]` |
 | `comments.list / post` | `{taskId}` / `{taskId, body, authorKind?, author?, question?}` | comments / comment |
 | `runs.list / get / events` | `{taskId?, active?}` / `{id}` / `{runId, after?, limit?}` | runs / run / run events |
-| `runs.start` | `{taskId, agentId?, note?}` | run (prepares the workspace) |
+| `runs.start` | `{taskId, agentId?, note?, model?, effort?}` | run (prepares the workspace). Model and effort: this call, then the pipeline step, the task (`model` counts only for the CLI in `modelFor`), then the agent; an effort the CLI lacks is skipped. The run records both |
 | `runs.steer / pause / resume / stop` | `{runId, text}` / `{runId}` | true |
 | `runs.handoff` | `{runId, agentId, note?}` | new run |
 | `permissions.answer` | `{runId, requestId, answer}` (`allow_once`, `allow_always`, `deny`) | true |
-| `agents.list / detect / update` | — / — / `{id, fields}` | agents with `active` and `today` usage |
+| `agents.list / detect / update` | — / — / `{id, fields}` | agents with `active` and `today` usage; `models` and `efforts` are what the CLI offers (refreshed at detection), `model` and `effort` the agent's defaults |
 | `agents.message` | `{taskId, from, to, text}` | true (agent-to-agent) |
+| `agents.create / delete` | `{fields}` / `{id}` | a role agent on a CLI: `fields.runtime` names the CLI's profile; it gets the CLI's path, version, offers and limits. Delete refuses a CLI |
+| `agents.message` | `{from, to, text, taskId?}` | what happened: delivered live, waits for the next run, or the idle agent was woken with a reply task. `to` is an id, name or role |
+| `agents.mail / report / createTask / post` | `{agentId, since}` / `{taskId, agentId, kind, passed, failed, details}` / `{agentId, fromTask, fields}` / `{agentId, channelId, text}` | used by `relay mcp`: mail for `relay_wait`; a QA verdict (a fail sends the task back to its builder); a task inside the limits (`maxAgentTasksPerHour`, `maxAgentTaskDepth`); a channel post |
+| `plans.propose / approve / reject` | `{agentId, fromTask, summary, tasks}` / `{planId}` / `{planId}` | draft tasks in Backlog plus a `plan` message; approve queues them (dependencies keep the order); a team with `planApproval: false` approves at once |
+| `activity.list` | `{projectId?, limit?}` | the last two days, newest first: `agent-message`, `note`, `report`, `handoff`, agents' channel `post`s and ended `run`s, each with task key, project, from/to and text |
+| `teams.list / templates` | — | teams `{name, members, projectIds, edges: [{from, to}], planApproval}`; templates `{id, name, summary, roles}` |
+| `teams.create / update / delete` | `{name, template?, projectIds?, runtime?}` / `{id, fields}` / `{id, keepAgents?}` | `create` makes one role agent per template role on the best installed CLI (or `runtime`); `delete` removes its agents unless `keepAgents` |
 | `rules.list / save / delete` | — / `{id?, fields}` / `{id}` | rules |
 | `settings.get / set` | — / `{values}` | settings |
 | `changes.list` | `{taskId}` | change entries with their repo |
@@ -78,7 +85,7 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `channels.list` | — | channels with `unread` and `lastAt` (`#general` and one per project exist by default) |
 | `channels.create / update / read / pin` | `{name, projectId?, topic?}` / `{id, fields}` / `{channelId}` / `{channelId, messageId, on?}` | channel / true |
 | `messages.list` | `{channelId, limit?}` | messages, oldest first |
-| `messages.post` | `{channelId, body, replyTo?, files?: [path]}` | `{message, task?}`, or `{message, tasks}` when `@agent` mentions made tasks. `/task [@agent] title` makes a task on the channel's board |
+| `messages.post` | `{channelId, body, replyTo?, files?: [path], agent?, model?, effort?, mode?, repoIds?}` | `{message, task?}`, or `{message, tasks}` when `@agent` mentions (or `agent`) made tasks. `/task [@agent] title` makes a task on the channel's board. `mode`: `task` (default) puts work on the board; `answer` and `plan` make a hidden `ask` task that runs on read-only copies and replies in the thread |
 | `messages.react / delete` | `{messageId, emoji, on?}` / `{id}` (own only) | true |
 | `files.get` | `{messageId, fileId}` | `{path}`, fetched and decrypted from team storage the first time |
 
@@ -106,7 +113,12 @@ An MCP server over stdio that agents get through `--mcp-config`. Tools:
 - `relay_ask`: ask the people on the task. The reply is steered back to the agent.
 - `relay_message_agent`: message another agent on the task.
 - `relay_check`: tick a "done when" item.
-- `relay_create_task`: add a follow-up task.
+- `relay_create_task`: a follow-up in Backlog after this task, or with `assignee` (id, name or role), `after` (task keys) and `queue` a task for a teammate (assigning others needs the Assign capability).
+- `relay_message_agent {agent, text}`: any agent, by id, name or role; `relay_wait {for: reply|task, task?, minutes?}` waits for the answer.
+- `relay_post {text, channel?}`, `relay_report {kind, passed, failed, details}`, `relay_propose_plan {summary, tasks}`, `relay_team`.
+- `relay_ask` on a team goes to the team's PM first.
+- Tools follow the agent's capabilities: `tools/list` shows only what its role allows.
+- `relay tool [name [json]]` runs the same tools from a shell (RELAY_RUN and RELAY_HOME are set for every run), for CLIs without MCP. Codex gets the server through `-c mcp_servers.relay.*`.
 
 ## `relay mcp`
 
@@ -115,3 +127,4 @@ Without `--run` (and no `RELAY_RUN`), the same server is for a person's own agen
 - `relay_tasks {project?, status?}`: a project's tasks with their keys.
 - `relay_create_task {title, project?, brief?, doneWhen?, repos?, agent?, queue?}`: a task in Backlog, or queued with `queue: true`. Without `repos`, Relay suggests them from the title and brief, as the new-task sheet does.
 - `relay_task_status {task}`: status, latest run, open question, checklist and discussion of a task such as `GA-3`.
+- `relay_update_task {task, status?, check?, uncheck?, addDoneWhen?, note?, from?}`: for work the person's own agent does itself: move the task, tick or add "done when" items, post a note.

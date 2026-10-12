@@ -217,7 +217,8 @@ class MobileHost {
       return true;
     },
     M.messagesList: (p) => _json(channels.messages(_s(p, 'channelId'))),
-    M.messagesPost: (p) => channels.post(_s(p, 'channelId'), p['body'] as String? ?? '', replyTo: p['replyTo'] as String?),
+    M.messagesPost: (p) => channels.post(_s(p, 'channelId'), p['body'] as String? ?? '',
+        replyTo: p['replyTo'] as String?, agent: p['agent'] as String?, model: p['model'] as String?, effort: p['effort'] as String?, mode: p['mode'] as String? ?? 'task'),
     M.messagesReact: (p) {
       channels.react(_s(p, 'messageId'), _s(p, 'emoji'), p['on'] != false);
       return true;

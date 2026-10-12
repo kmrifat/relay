@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../data/relay_data.dart';
 import '../../ui/markdown.dart';
 import '../../ui/widgets.dart';
+import '../agents/model_picker.dart';
 import 'task_bits.dart';
 
 /// The live run of a task (design T02, right side).
@@ -56,6 +57,8 @@ class _RunPaneState extends ConsumerState<RunPane> {
                 Text([
                   if (agent?.version != null) agent!.version!.split(' ').first,
                   if (agent?.plan.isNotEmpty == true) agent!.plan,
+                  if (run.model != null) modelLabel(agent, run.model),
+                  if (run.effort != null) 'effort ${run.effort}',
                   _status(run),
                 ].join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, color: c.text2)),
               ]),

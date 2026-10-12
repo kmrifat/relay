@@ -34,6 +34,19 @@ class ClaudeCodeAdapter extends AgentAdapter {
   @override
   List<String> get goodAt => const ['planning', 'refactors', 'multi-file changes'];
 
+  /// Aliases, so each keeps meaning the newest model of its family.
+  @override
+  List<ModelOption> get models => const [
+    ModelOption('fable', 'Fable', note: 'deepest'),
+    ModelOption('opus', 'Opus', note: 'strong'),
+    ModelOption('sonnet', 'Sonnet', note: 'balanced'),
+    ModelOption('haiku', 'Haiku', note: 'fast, cheap'),
+  ];
+
+  /// `--effort` (seen in 2.1.278's help).
+  @override
+  List<String> get efforts => const ['low', 'medium', 'high', 'xhigh', 'max'];
+
   /// Arguments for a run (exposed for tests).
   static List<String> argsFor(RunSpec spec) => [
     '-p',
@@ -43,9 +56,12 @@ class ClaudeCodeAdapter extends AgentAdapter {
     'stream-json',
     '--verbose',
     if (spec.model != null) ...['--model', spec.model!],
+    if (spec.effort != null) ...['--effort', spec.effort!],
     if (spec.resumeSessionId != null) ...['--resume', spec.resumeSessionId!],
     if (spec.mcpConfigPath != null) ...['--mcp-config', spec.mcpConfigPath!, '--allowedTools', 'mcp__${relayMcpServer}__*'],
     for (final dir in spec.addDirs) ...['--add-dir', dir],
+    if (spec.readOnly || spec.disallowedTools.isNotEmpty)
+      ...['--disallowedTools', if (spec.readOnly) ...['Edit', 'Write', 'MultiEdit', 'NotebookEdit'], ...spec.disallowedTools],
     if (spec.autoApprove)
       ...['--permission-mode', 'bypassPermissions']
     else

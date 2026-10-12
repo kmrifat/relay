@@ -69,6 +69,12 @@ class Notifier {
   void _onMessage(Message m) {
     if (m.authorKind == 'person' && m.deviceId != null && _isMe(m.deviceId!)) return; // my own
     if (_sent.contains('m:${m.id}')) return;
+    // A PM's plan waits for the person who runs the team.
+    if (m.data['tag'] == 'plan' && m.data['planState'] == 'proposed' && _isMe(m.deviceId ?? ctx.deviceId)) {
+      _sent.add('m:${m.id}');
+      _notify('plan', '${m.author} proposes a plan', '${(m.data['items'] as List?)?.length ?? 0} tasks · ${m.body}', channelId: m.channelId, messageId: m.id);
+      return;
+    }
     final me = ctx.setting('userName', '').trim().toLowerCase();
     if (me.isEmpty || me == 'you') return;
     final handles = {me.replaceAll(' ', ''), me.split(' ').first, me.replaceAll(' ', '-')};

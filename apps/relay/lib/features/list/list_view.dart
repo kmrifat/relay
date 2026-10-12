@@ -3,7 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 import 'package:relay_core/relay_core.dart';
+import 'package:relay_protocol/relay_protocol.dart';
 
+import '../../app/commands.dart';
 import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
@@ -30,6 +32,40 @@ class _TaskListViewState extends ConsumerState<TaskListView> {
   _Who who = _Who.all;
   final collapsed = <String>{TaskStatus.done, TaskStatus.backlog};
   String? selected;
+  final _focus = FocusNode(debugLabel: 'list');
+  final _selectedKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+    focusContent.addListener(_takeFocus);
+    // The list's keys work as soon as it opens, unless you are somewhere
+    // else on purpose (the sidebar, a field).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && focusIsIdle) _focus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    focusContent.removeListener(_takeFocus);
+    _focus.dispose();
+    super.dispose();
+  }
+
+  void _takeFocus() {
+    if (mounted) _focus.requestFocus();
+  }
+
+  void _select(String id) {
+    setState(() => selected = id);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final policy in [ScrollPositionAlignmentPolicy.keepVisibleAtEnd, ScrollPositionAlignmentPolicy.keepVisibleAtStart]) {
+        final ctx = _selectedKey.currentContext;
+        if (ctx != null) Scrollable.ensureVisible(ctx, alignmentPolicy: policy);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,7 +107,16 @@ class _TaskListViewState extends ConsumerState<TaskListView> {
       if (isCollapsed) continue;
       for (final t in group) {
         zebra = !zebra;
-        rows.add(_Row(task: t, zebra: zebra, selected: selected == t.id, onSelect: () => setState(() => selected = t.id)));
+        rows.add(_Row(
+          key: selected == t.id ? _selectedKey : ValueKey(t.id),
+          task: t,
+          zebra: zebra,
+          selected: selected == t.id,
+          onSelect: () {
+            _select(t.id);
+            _focus.requestFocus();
+          },
+        ));
       }
     }
 
@@ -82,18 +127,38 @@ class _TaskListViewState extends ConsumerState<TaskListView> {
     void move(int d) {
       if (visible.isEmpty) return;
       final i = visible.indexWhere((t) => t.id == selected);
-      setState(() => selected = visible[(i + d).clamp(0, visible.length - 1)].id);
+      _select(visible[(i + d).clamp(0, visible.length - 1)].id);
     }
 
-    return CallbackShortcuts(
-      bindings: {
-        const SingleActivator(LogicalKeyboardKey.arrowDown): () => move(1),
-        const SingleActivator(LogicalKeyboardKey.arrowUp): () => move(-1),
-        const SingleActivator(LogicalKeyboardKey.enter): () {
-          if (selected != null) ref.read(navProvider.notifier).openTask(selected!);
-        },
-      },
-      child: Focus(autofocus: true, child: Column(children: [
+    KeyEventResult key(KeyEvent e) {
+      if (e is KeyUpEvent) return KeyEventResult.ignored;
+      final current = visible.where((t) => t.id == selected).firstOrNull;
+      final kb = HardwareKeyboard.instance;
+      if (kb.isMetaPressed || kb.isControlPressed || kb.isAltPressed) return KeyEventResult.ignored;
+      switch (e.logicalKey) {
+        case LogicalKeyboardKey.arrowDown || LogicalKeyboardKey.keyJ:
+          move(1);
+        case LogicalKeyboardKey.arrowUp || LogicalKeyboardKey.keyK:
+          move(-1);
+        case LogicalKeyboardKey.enter || LogicalKeyboardKey.numpadEnter || LogicalKeyboardKey.space when current != null:
+          ref.read(navProvider.notifier).openTask(current.id);
+        case LogicalKeyboardKey.keyA when current != null:
+          final box = _selectedKey.currentContext?.findRenderObject() as RenderBox?;
+          assignMenu(context, ref, current, box == null ? Offset.zero : box.localToGlobal(Offset(200, box.size.height)));
+        case LogicalKeyboardKey.keyR when current != null:
+          runNow(context, ref, current);
+        case LogicalKeyboardKey.keyQ when current != null:
+          ref.read(clientProvider).call(M.tasksMove, {'id': current.id, 'status': TaskStatus.queued});
+        default:
+          return KeyEventResult.ignored;
+      }
+      return KeyEventResult.handled;
+    }
+
+    return Focus(
+      focusNode: _focus,
+      onKeyEvent: (_, e) => key(e),
+      child: Column(children: [
       if (widget.showFilters)
         Container(
           height: 36,
@@ -133,12 +198,12 @@ class _TaskListViewState extends ConsumerState<TaskListView> {
             ? Center(child: Text('No tasks here.', style: context.t(13, color: c.text2)))
             : ListView(children: rows),
       ),
-    ])));
+    ]));
   }
 }
 
 class _Row extends ConsumerWidget {
-  const _Row({required this.task, required this.zebra, required this.selected, required this.onSelect});
+  const _Row({super.key, required this.task, required this.zebra, required this.selected, required this.onSelect});
   final Task task;
   final bool zebra;
   final bool selected;

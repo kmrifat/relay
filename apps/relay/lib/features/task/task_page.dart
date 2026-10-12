@@ -9,7 +9,9 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/markdown.dart';
+import '../../ui/split.dart';
 import '../../ui/widgets.dart';
+import '../agents/model_picker.dart';
 import '../../ui/platform.dart';
 import 'diff_dialog.dart';
 import 'run_pane.dart';
@@ -59,11 +61,14 @@ class TaskPage extends ConsumerWidget {
       ),
       Container(height: 1, color: c.separator),
       Expanded(
-        child: Row(children: [
-          SizedBox(width: 480, child: _Details(task: task)),
-          Container(width: 1, color: c.separator),
-          Expanded(child: RunPane(task: task)),
-        ]),
+        child: ResizableSplit(
+          id: 'task.details',
+          initial: 480,
+          min: 340,
+          keepOther: 380,
+          first: _Details(task: task),
+          second: RunPane(task: task),
+        ),
       ),
     ]);
   }
@@ -154,6 +159,24 @@ class _DetailsState extends ConsumerState<_Details> {
         ),
         const SizedBox(height: 16),
       ],
+      if (t.data['attention'] == 'approval') ...[
+        Box(
+          color: c.warningWash,
+          border: c.warning,
+          padding: const EdgeInsets.all(12),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Waiting for your OK', style: context.t(12, w: FontWeight.w700, color: c.warning)),
+                const SizedBox(height: 4),
+                Text('${t.data['question'] ?? 'A repo it touches asks before agents work there.'}', style: context.t(13)),
+              ]),
+            ),
+            Btn('Let it start', kind: BtnKind.primary, onTap: () => _update({'approved': true, 'attention': null, 'question': null})),
+          ]),
+        ),
+        const SizedBox(height: 16),
+      ],
       if (t.data['attention'] == 'failed' && t.data['lastError'] != null) ...[
         Box(
           color: c.dangerWash,
@@ -182,19 +205,26 @@ class _DetailsState extends ConsumerState<_Details> {
           const Hairline(),
           FieldRow('Assignee', Row(children: [
             Expanded(child: AssigneeLabel(t, size: 12)),
-            Builder(builder: (context) => IconBtn(LucideIcons.pencil, size: 12, onTap: () async {
+            Builder(builder: (context) => IconBtn(LucideIcons.pencil, size: 12, onTap: () {
               final box = context.findRenderObject() as RenderBox;
-              final choice = await showMenuAt<String>(context, box.localToGlobal(Offset(0, box.size.height)), [
-                ('auto', 'Any agent (routing rules)', LucideIcons.workflow),
-                for (final a in data.agents.where((a) => a.binaryPath != null)) ('agent:${a.id}', a.name, LucideIcons.bot),
-                ('me', 'Me', LucideIcons.user),
-              ]);
-              if (choice == null) return;
-              if (choice == 'auto') await _update({'assigneeKind': 'agent', 'assignee': 'auto'});
-              if (choice == 'me') await _update({'assigneeKind': 'person', 'assignee': ref.read(clientProvider).hello['userName'] ?? 'You'});
-              if (choice.startsWith('agent:')) await _update({'assigneeKind': 'agent', 'assignee': choice.substring(6)});
+              assignMenu(context, ref, t, box.localToGlobal(Offset(0, box.size.height)));
             })),
           ])),
+          if (t.assigneeKind == 'agent' && data.get<AgentProfile>(Kind.agent, t.assignee)?.binaryPath != null) ...[
+            const Hairline(),
+            Builder(builder: (context) {
+              final a = data.get<AgentProfile>(Kind.agent, t.assignee)!;
+              // A model picked for another CLI doesn't apply to this one.
+              final model = t.modelFor == null || t.modelFor == a.adapter ? t.model : null;
+              return FieldRow('Model', ModelEffortPicker(
+                agent: a,
+                model: model,
+                effort: a.efforts.contains(t.effort) ? t.effort : null,
+                inherited: agentDefaults(a),
+                onChanged: (m, e) => _update({'model': m, 'modelFor': m == null ? null : a.adapter, 'effort': e}),
+              ));
+            }),
+          ],
           if (t.pipeline.isNotEmpty) ...[
             const Hairline(),
             FieldRow('Pipeline', Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [

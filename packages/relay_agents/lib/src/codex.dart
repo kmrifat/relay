@@ -27,14 +27,25 @@ class CodexAdapter extends AgentAdapter {
   @override
   List<String> get goodAt => const ['code review', 'bug fixes'];
 
+  /// `-c model_reasoning_effort=…` in `codex exec`.
+  @override
+  List<String> get efforts => const ['minimal', 'low', 'medium', 'high'];
+
   static List<String> argsFor(RunSpec spec) => [
     'exec',
     if (spec.resumeSessionId != null) ...['resume', spec.resumeSessionId!],
     '--json',
     '--skip-git-repo-check',
     '--sandbox',
-    spec.autoApprove ? 'danger-full-access' : 'workspace-write',
+    spec.readOnly ? 'read-only' : (spec.autoApprove ? 'danger-full-access' : 'workspace-write'),
     if (spec.model != null) ...['--model', spec.model!],
+    if (spec.effort != null) ...['-c', 'model_reasoning_effort="${spec.effort}"'],
+    // Relay's tools, as config overrides (TOML values; JSON strings are valid TOML strings).
+    if (spec.relayMcp case final m?) ...[
+      '-c', 'mcp_servers.$relayMcpServer.command=${jsonEncode(m.command)}',
+      '-c', 'mcp_servers.$relayMcpServer.args=[${m.args.map(jsonEncode).join(', ')}]',
+      if (m.env.isNotEmpty) ...['-c', 'mcp_servers.$relayMcpServer.env={${m.env.entries.map((e) => '${e.key}=${jsonEncode(e.value)}').join(', ')}}'],
+    ],
     ...spec.extraArgs,
     spec.prompt,
   ];
