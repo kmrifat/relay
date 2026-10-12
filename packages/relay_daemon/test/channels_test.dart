@@ -172,6 +172,39 @@ void main() {
     await expectLater(c.call(M.messagesPost, {'channelId': chId, 'body': 'x', 'mode': 'shout'}), throwsA(isA<RpcError>()));
   });
 
+  test('a side-panel chat: hidden task, turns resume the session, person tools', () async {
+    final project = (await c.list(M.projectsList)).first;
+    final first = await c.map(M.chatsSend, {'agentId': 'demo', 'text': 'what is running?', 'context': 'Agents › Demo agent', 'projectId': project['id']});
+    final chatId = first['chatId'] as String;
+    final task = ((await c.map(M.tasksGet, {'id': chatId}))['task'] as Map);
+    expect([task['ask'], task['assignee'], task['title'], task['number']], ['chat', 'demo', 'Chat: what is running?', 0]);
+    Future<Map<String, Object?>> finished(String runId) => waitFor(() async {
+          final r = await c.map(M.runsGet, {'id': runId});
+          return RunStatus.isFinished(r['status'] as String) ? r : null;
+        }, timeout: const Duration(seconds: 30));
+    final r1 = await finished(first['runId'] as String);
+    expect([r1['status'], r1['chatText']], ['done', 'what is running?']);
+    expect(r1['prompt'], allOf(contains('side panel of Relay'), contains('## Their message\nwhat is running?'), contains('They are looking at: Agents › Demo agent')));
+    expect(r1['summary'], contains('A real agent would answer "what is running?"'));
+
+    // The next turn resumes the agent's session with just the message.
+    final second = await c.map(M.chatsSend, {'chatId': chatId, 'agentId': 'demo', 'text': 'and what is queued?'});
+    expect(second['chatId'], chatId);
+    final r2 = await finished(second['runId'] as String);
+    expect(r2['prompt'], 'and what is queued?');
+    expect(r2['summary'], contains('"and what is queued?"'));
+
+    // A chat run acts for the person: it gets their tools, not a task's.
+    final tools = RelayTools(RelayPaths(p.join(tmp.path, 'home')), r2['id'] as String);
+    final names = (await tools.list()).map((t) => t['name']).toSet();
+    expect(names, containsAll(['relay_tasks', 'relay_update_task', 'relay_create_task']));
+    expect(names, isNot(contains('relay_progress')));
+    await tools.close();
+
+    // Chats never show up as work.
+    expect(await RelayTools(RelayPaths(p.join(tmp.path, 'home')), null).call('relay_tasks', {'project': project['key']}), isNot(contains('Chat:')));
+  });
+
   test('a signed-out agent says how to sign back in', () async {
     // Stands in for a Claude Code whose login expired: reads the prompt,
     // complains on stderr, exits 1.

@@ -10,7 +10,7 @@ import '../../data/relay_data.dart';
 import '../../ui/split.dart';
 import '../../ui/widgets.dart';
 import '../agents/model_picker.dart';
-import '../ask/ask_palette.dart';
+import '../chat/chat_panel.dart';
 
 /// A team of agents (design P02): how work flows between them, who they
 /// are, and an inspector to change one: the CLI it runs on, its model and
@@ -329,7 +329,7 @@ class _InspectorState extends ConsumerState<_Inspector> {
             ]),
           ),
           const SizedBox(width: 8),
-          Btn('Ask', icon: LucideIcons.sparkles, small: true, onTap: () => showAskPalette(context, ref, agentId: a.id)),
+          Btn('Ask', icon: LucideIcons.sparkles, small: true, onTap: () => ref.read(chatProvider.notifier).openWith(a.id)),
         ]),
         const SizedBox(height: 16),
         label('Runs on'),

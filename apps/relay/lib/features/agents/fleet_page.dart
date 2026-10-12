@@ -8,6 +8,7 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
+import '../chat/chat_panel.dart';
 import 'model_picker.dart';
 import '../../ui/platform.dart';
 
@@ -283,10 +284,14 @@ class _SlotChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
     final task = ref.watch(dataProvider).get<Task>(Kind.task, run.taskId);
-    final label = task == null ? 'busy' : ref.read(dataProvider).keyOf(task);
+    // A side-panel chat has no key; it opens in the panel.
+    final chat = task?.data['ask'] == 'chat';
+    final label = task == null ? 'busy' : (chat ? 'chat' : ref.read(dataProvider).keyOf(task));
     final waiting = run.status == RunStatus.waiting;
     final chip = Pressable(
-      onTap: task == null ? null : () => ref.read(navProvider.notifier).openTask(task.id),
+      onTap: task == null
+          ? null
+          : () => chat ? ref.read(chatProvider.notifier).reopen(task.id, run.agentId) : ref.read(navProvider.notifier).openTask(task.id),
       builder: (context, hover, focus) => Pill(label, mono: true, fg: Colors.white, bg: waiting ? c.warning : (hover ? Color.lerp(c.accent, Colors.white, 0.15) : c.accent)),
     );
     return task == null ? chip : Tooltip(message: '${task.title}${waiting ? ' · waiting for you' : ''}', child: chip);

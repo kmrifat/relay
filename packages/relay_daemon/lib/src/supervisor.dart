@@ -287,7 +287,60 @@ class Supervisor {
     return (m, e);
   }
 
-  Future<Run> startRun(String taskId, {String? agentId, String? extraPrompt, String? model, String? effort}) async {
+  /// A message in a side-panel chat: a hidden task (`ask: chat`) whose
+  /// every turn is a run. The first message starts the chat; a later one
+  /// goes into the live run when the agent takes messages, or else resumes
+  /// the agent's session in a new run. [context] is the page the person
+  /// is looking at.
+  Future<({String chatId, String runId})> chat({
+    String? chatId,
+    required String agentId,
+    required String text,
+    String? context,
+    String? projectId,
+    String? model,
+    String? effort,
+  }) async {
+    final agent = ctx.agent(agentId) ?? (throw RpcError(RpcError.notFound, 'No agent $agentId'));
+    final message = context == null || context.trim().isEmpty ? text.trim() : '${text.trim()}\n\n(They are looking at: ${context.trim()})';
+    Task task;
+    if (chatId != null) {
+      task = ctx.task(chatId);
+      final active = task.str('activeRunId');
+      if (active != null && isLive(active)) {
+        final run = ctx.run(active);
+        if (run.agentId != agentId || !_sessions[active]!.canSteer) {
+          throw RpcError(RpcError.invalidParams, '${ctx.agent(run.agentId)?.name ?? 'The agent'} is still answering. Wait for it, or stop it.');
+        }
+        steer(active, text.trim());
+        return (chatId: task.id, runId: active);
+      }
+    } else {
+      final pid = projectId ?? ctx.store.list<Project>(Kind.project).firstOrNull?.id ?? (throw RpcError(RpcError.invalidParams, 'Add a project first.'));
+      final title = text.trim().replaceAll(RegExp(r'\s+'), ' ');
+      // Not createTask: a chat takes no number, so the project's task keys
+      // don't skip.
+      if (ctx.store.get<Project>(Kind.project, pid) == null) throw RpcError(RpcError.notFound, 'No project $pid');
+      task = ctx.store.create<Task>(Kind.task, {
+        'projectId': pid,
+        'number': 0,
+        'title': 'Chat: ${title.length > 60 ? '${title.substring(0, 59)}…' : title}',
+        'ask': 'chat',
+        'assigneeKind': 'agent',
+        'assignee': agent.id,
+        'status': TaskStatus.backlog,
+        'runOn': ctx.deviceId,
+        'createdOn': ctx.deviceId,
+      });
+    }
+    final run = await startRun(task.id, agentId: agent.id, extraPrompt: '## Their message\n$message', model: model, effort: effort, chatText: text.trim(), resumeWith: message);
+    return (chatId: task.id, runId: run.id);
+  }
+
+  /// [chatText] is what the person typed, shown in the chat. [resumeWith]
+  /// replaces the whole prompt when the agent's session resumes (a chat's
+  /// next turn), since the session already has the rest.
+  Future<Run> startRun(String taskId, {String? agentId, String? extraPrompt, String? model, String? effort, String? chatText, String? resumeWith}) async {
     final task = ctx.task(taskId);
     final chosen = agentId ?? pickAgent(task);
     if (chosen == null) throw RpcError(RpcError.invalidParams, 'No agent available for ${ctx.taskKey(task)}');
@@ -297,7 +350,12 @@ class Supervisor {
     final (useModel, useEffort) = modelFor(task, step, agent, adapter, model: model, effort: effort);
 
     final cwd = await workspaces.prepare(task);
-    final prompt = buildPrompt(task, step, cwd, agent, extra: extraPrompt, mail: collab.takeMail(agent.id));
+    final previous = ctx.store
+        .list<Run>(Kind.run, taskId: task.id)
+        .where((r) => r.agentId == agent.id && r.sessionId != null)
+        .toList();
+    final resumeId = extraPrompt != null && previous.isNotEmpty ? previous.last.sessionId : null;
+    final prompt = resumeId != null && resumeWith != null ? resumeWith : buildPrompt(task, step, cwd, agent, extra: extraPrompt, mail: collab.takeMail(agent.id));
     final run = ctx.store.create<Run>(Kind.run, {
       'taskId': task.id,
       'projectId': task.projectId,
@@ -309,6 +367,7 @@ class Supervisor {
       'pipelineStep': step,
       'model': ?useModel,
       'effort': ?useEffort,
+      'chatText': ?chatText,
       'startedAt': DateTime.now().toUtc().toIso8601String(),
     });
     ctx.store.patch<Task>(Kind.task, task.id, {
@@ -321,10 +380,6 @@ class Supervisor {
     await workspaces.markRunning(task, agent.id);
 
     final mcpPath = _writeMcpConfig(run.id);
-    final previous = ctx.store
-        .list<Run>(Kind.run, taskId: task.id)
-        .where((r) => r.agentId == agent.id && r.sessionId != null && r.id != run.id)
-        .toList();
     final AgentSession session;
     try {
       session = await adapter.start(RunSpec(
@@ -340,7 +395,7 @@ class Supervisor {
         // holds PROJECT.md and the other repos' snapshots.
         addDirs: [if (!p.equals(workspaces.folderFor(task), cwd)) workspaces.folderFor(task)],
         argsTemplate: (agent.data['argsTemplate'] as List?)?.cast<String>(),
-        resumeSessionId: extraPrompt != null && previous.isNotEmpty ? previous.last.sessionId : null,
+        resumeSessionId: resumeId,
         autoApprove: !ctx.boolSetting('askBeforeShell', true),
         readOnly: task.str('ask') != null || !agent.can(AgentCap.editCode),
         disallowedTools: [if (!agent.can(AgentCap.runShell)) 'Bash'],
@@ -388,6 +443,8 @@ class Supervisor {
     final key = task.displayKey(project.key);
     final touched = ctx.touchedRepos(task);
     final others = ctx.reposOf(task.projectId).where((r) => !touched.contains(r)).toList();
+    final chat = task.str('ask') == 'chat';
+    if (chat) return _chatPrompt(task, project, cwd, agent, extra);
     final b = StringBuffer()
       ..writeln('You are ${agent.name}${agent.role.isEmpty ? '' : ', ${agent.role}'}, working on task $key in project "${project.name}", assigned through Relay.')
       ..writeln();
@@ -479,6 +536,31 @@ class Supervisor {
       b..writeln()..writeln('## Messages for you');
       for (final m in mail) {
         b.writeln('- ${m.author}: ${m.body.replaceAll('\n', ' ')}');
+      }
+    }
+    if (extra != null && extra.trim().isNotEmpty) b..writeln()..writeln(extra.trim());
+    return b.toString();
+  }
+
+  /// A chat's first turn, or a turn whose agent can't resume: who they
+  /// are talking to, what Relay is, the conversation so far and the message.
+  String _chatPrompt(Task task, Project project, String cwd, AgentProfile agent, String? extra) {
+    final b = StringBuffer()
+      ..writeln('You are ${agent.name}${agent.role.isEmpty ? '' : ', ${agent.role}'}, chatting with a person in the side panel of Relay, '
+          'the task manager where they run coding agents like you on their projects. The chat started in project "${project.name}".')
+      ..writeln()
+      ..writeln('## How to help')
+      ..writeln('Answer questions about their projects, tasks, agents and code, and do what they ask in Relay. '
+          'Look things up with the relay tools (relay_projects, relay_tasks, relay_task_status) rather than guessing, and change things with them '
+          'when asked: relay_update_task moves a task (backlog, queued, running, review, done), ticks its checks or adds a note; relay_create_task makes one.')
+      ..writeln('Name tasks by key (e.g. ${project.key}-3); Relay turns keys into links. Keep replies short: a few sentences or a short list.')
+      ..writeln('You are in `$cwd`, where every repo of the project is a read-only copy. Read code when it helps; don\'t edit files or commit.');
+    final turns = ctx.store.list<Run>(Kind.run, taskId: task.id).where((r) => r.str('chatText') != null && RunStatus.isFinished(r.status)).toList();
+    if (turns.isNotEmpty) {
+      b..writeln()..writeln('## The conversation so far');
+      for (final r in turns.skip(turns.length > 12 ? turns.length - 12 : 0)) {
+        b.writeln('Person: ${r.str('chatText')!.replaceAll('\n', ' ')}');
+        if (r.summary != null) b.writeln('${ctx.agent(r.agentId)?.name ?? r.agentId}: ${r.summary!.replaceAll('\n', ' ')}');
       }
     }
     if (extra != null && extra.trim().isNotEmpty) b..writeln()..writeln(extra.trim());

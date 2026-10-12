@@ -7,8 +7,6 @@ import '../../app/theme.dart';
 import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
-import '../../ui/platform.dart';
-import '../ask/ask_palette.dart';
 import '../board/board_view.dart';
 import '../code/code_view.dart';
 import '../git/git_view.dart';
@@ -82,7 +80,6 @@ class ProjectPage extends ConsumerWidget {
         ],
         actions: [
           const QuickFindField(),
-          Btn('Ask', icon: LucideIcons.sparkles, kind: BtnKind.primary, small: true, tooltip: 'Ask an agent (${Desk.isMac ? '⌘J' : 'Ctrl+J'})', onTap: () => showAskPalette(context, ref)),
         ],
       ),
       Container(height: 1, color: context.c.separator),

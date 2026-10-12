@@ -4,6 +4,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../data/nav.dart';
 import '../data/relay_data.dart';
+import '../features/chat/chat_panel.dart';
+import '../ui/platform.dart';
 import '../ui/widgets.dart';
 import 'breadcrumbs.dart';
 import 'theme.dart';
@@ -23,6 +25,19 @@ class NavButtons extends ConsumerWidget {
       IconBtn(LucideIcons.chevronLeft, size: 16, color: back == null ? off : null, tooltip: back == null ? null : 'Back to ${placeName(back, data)}  ⌘[', onTap: back == null ? null : n.back),
       IconBtn(LucideIcons.chevronRight, size: 16, color: next == null ? off : null, tooltip: next == null ? null : 'Forward to ${placeName(next, data)}  ⌘]', onTap: next == null ? null : n.forward),
     ]);
+  }
+}
+
+/// Opens the chat panel; shown at the end of every toolbar while it is shut.
+class ChatToggle extends ConsumerWidget {
+  const ChatToggle({super.key});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    if (ref.watch(chatProvider.select((s) => s.open))) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(left: 8),
+      child: Btn('Chat', icon: LucideIcons.sparkles, small: true, tooltip: 'Chat with an agent  ${Desk.isMac ? '⌘J' : 'Ctrl+J'}', onTap: ref.read(chatProvider.notifier).toggle),
+    );
   }
 }
 

@@ -28,7 +28,8 @@ class AgentPage extends ConsumerWidget {
         Expanded(child: Center(child: Text('This agent is gone.', style: context.t(13, color: c.text2)))),
       ]);
     }
-    final runs = data.all<Run>(Kind.run).where((r) => r.agentId == a.id).toList();
+    // Its work: side-panel chats are conversations, not work.
+    final runs = data.all<Run>(Kind.run).where((r) => r.agentId == a.id && data.get<Task>(Kind.task, r.taskId)?.data['ask'] != 'chat').toList();
     final active = runs.where((r) => RunStatus.isActive(r.status)).toList()..sort((x, y) => (y.startedAt ?? DateTime(2000)).compareTo(x.startedAt ?? DateTime(2000)));
     final recent = runs.where((r) => RunStatus.isFinished(r.status)).toList()..sort((x, y) => (y.endedAt ?? DateTime(2000)).compareTo(x.endedAt ?? DateTime(2000)));
     final next = data.tasksOf(null).where((t) => t.status == TaskStatus.queued && t.assigneeKind == 'agent' && t.assignee == a.id).toList()

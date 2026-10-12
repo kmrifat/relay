@@ -52,6 +52,7 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | `runs.list / get / events` | `{taskId?, active?}` / `{id}` / `{runId, after?, limit?}` | runs / run / run events |
 | `runs.start` | `{taskId, agentId?, note?, model?, effort?}` | run (prepares the workspace). Model and effort: this call, then the pipeline step, the task (`model` counts only for the CLI in `modelFor`), then the agent; an effort the CLI lacks is skipped. The run records both |
 | `runs.steer / pause / resume / stop` | `{runId, text}` / `{runId}` | true |
+| `chats.send` | `{chatId?, agentId, text, context?, projectId?, model?, effort?}` | `{chatId, runId}`. The side-panel chat: a chat is a hidden task (`ask: chat`, number 0). The first message starts it; a later one steers the live run (agents that take messages) or starts a run that resumes the agent's session with just the message. Its runs get the person's MCP tools. `context` is the page the person is on |
 | `runs.handoff` | `{runId, agentId, note?}` | new run |
 | `permissions.answer` | `{runId, requestId, answer}` (`allow_once`, `allow_always`, `deny`) | true |
 | `agents.list / detect / update` | — / — / `{id, fields}` | agents with `active` and `today` usage; `models` and `efforts` are what the CLI offers (refreshed at detection), `model` and `effort` the agent's defaults |

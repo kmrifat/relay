@@ -68,6 +68,11 @@ abstract final class M {
   static const runsHandoff = 'runs.handoff';
   static const permissionsAnswer = 'permissions.answer';
 
+  /// The side-panel chat: `{chatId?, agentId, text, context?, projectId?,
+  /// model?, effort?}` → `{chatId, runId}`. A chat is a hidden task
+  /// (`ask: chat`); each message is a run, or steers the live one.
+  static const chatsSend = 'chats.send';
+
   static const agentsList = 'agents.list';
   static const agentsDetect = 'agents.detect';
   static const agentsUpdate = 'agents.update';

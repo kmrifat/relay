@@ -13,7 +13,7 @@ import '../data/system.dart';
 import '../data/notifications.dart';
 import '../data/nav.dart';
 import '../data/relay_data.dart';
-import '../features/ask/ask_palette.dart';
+import '../features/chat/chat_panel.dart';
 import '../features/channel/channel_page.dart';
 import '../features/code/code_session.dart';
 import '../features/help/keyboard_map.dart';
@@ -162,7 +162,7 @@ class _ShellState extends ConsumerState<Shell> {
 
     return {
       Cmd.quickFind: () => showQuickFind(context, ref),
-      Cmd.askAgent: () => showAskPalette(context, ref),
+      Cmd.askAgent: ref.read(chatProvider.notifier).toggle,
       Cmd.home: () => n.page(AppPage.home),
       Cmd.activity: () => n.page(AppPage.activity),
       for (var i = 0; i < data.projects.length && i < 9; i++) Cmd.project(i): () => n.project(data.projects[i].id),
@@ -290,6 +290,7 @@ class _ShellState extends ConsumerState<Shell> {
       };
     }
 
+    final chatOpen = ref.watch(chatProvider.select((s) => s.open));
     _route = ModalRoute.of(context);
     if (_onboarding) {
       Commands.instance.unregister();
@@ -316,7 +317,17 @@ class _ShellState extends ConsumerState<Shell> {
                       min: 180,
                       keepOther: 640,
                       first: Sidebar(focusNode: _sidebarFocus),
-                      second: Focus(focusNode: _contentFocus, child: content),
+                      // The chat sits on the right of every page.
+                      second: ResizableSplit(
+                        id: 'shell.chat',
+                        sized: SplitSide.second,
+                        initial: 380,
+                        min: 320,
+                        keepOther: 560,
+                        collapsedTo: chatOpen ? null : 0,
+                        first: Focus(focusNode: _contentFocus, child: content),
+                        second: chatOpen ? const ChatPanel() : const SizedBox.shrink(),
+                      ),
                     ),
                   ),
                 ]),

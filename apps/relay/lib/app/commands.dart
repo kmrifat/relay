@@ -67,7 +67,7 @@ const viewNames = ['Board', 'List', 'Timeline', 'Git', 'Code', 'Repos'];
 
 List<Command> get commands => [
   Command(Cmd.quickFind, 'Jump to anything', CommandGroup.go, [_mod(LogicalKeyboardKey.keyK)]),
-  Command(Cmd.askAgent, 'Ask an agent', CommandGroup.go, [_mod(LogicalKeyboardKey.keyJ)]),
+  Command(Cmd.askAgent, 'Chat with an agent', CommandGroup.go, [_mod(LogicalKeyboardKey.keyJ)]),
   Command(Cmd.home, 'Mission control', CommandGroup.go, [_mod(LogicalKeyboardKey.digit0)]),
   Command(Cmd.activity, 'Activity', CommandGroup.go, [_mod(LogicalKeyboardKey.keyA, shift: true)]),
   for (var i = 0; i < 9; i++) Command(Cmd.project(i), 'Project ${i + 1}', CommandGroup.go, [_mod(_digits[i])], menu: false),
