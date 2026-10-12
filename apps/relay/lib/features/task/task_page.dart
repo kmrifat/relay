@@ -37,7 +37,6 @@ class TaskPage extends ConsumerWidget {
 
     return Column(children: [
       Toolbar(
-        leading: IconBtn(LucideIcons.chevronLeft, size: 16, tooltip: 'Back (Esc)', onTap: () => ref.read(navProvider.notifier).closeTask()),
         title: '${data.keyOf(task)} · ${task.title}',
         subtitle: '${project?.name ?? ''} · ${TaskStatus.label(task.status)}'
             '${repos.length > 1 ? ' · touches $touched of ${repos.length} repos' : ''}'

@@ -254,7 +254,7 @@ class _Lane extends ConsumerWidget {
     return Hoverable(
       radius: 6,
       onTap: () => team == null
-          ? ref.read(navProvider.notifier).page(AppPage.agents)
+          ? ref.read(navProvider.notifier).agent(a.id)
           : ref.read(navProvider.notifier).team(team.id, agentId: a.id),
       child: Container(
         padding: const EdgeInsets.all(10),

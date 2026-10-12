@@ -4,7 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 enum ProjectView { board, list, timeline, git, code, repos }
 
 /// Smart lists in the sidebar, plus the non-project pages.
-enum AppPage { project, inbox, running, review, waiting, agents, settings, channel, team, home, activity }
+enum AppPage { project, inbox, running, review, waiting, agents, agent, settings, channel, team, home, activity }
 
 class NavState {
   const NavState({
@@ -31,7 +31,8 @@ class NavState {
   /// The open channel (AppPage.channel).
   final String? channelId;
 
-  /// The open team (AppPage.team) and the agent shown in its inspector.
+  /// The open team (AppPage.team) and the agent shown in its inspector;
+  /// on AppPage.agent, the agent whose page is open.
   final String? teamId;
   final String? agentId;
 
@@ -46,6 +47,33 @@ class NavState {
         teamId: teamId ?? this.teamId,
         agentId: agentId ?? this.agentId,
       );
+
+  /// Saved by relayd (ui.set), so Relay reopens where you left off.
+  Map<String, Object?> toJson() => {
+        'page': page.name,
+        'projectId': ?projectId,
+        'view': view.name,
+        'taskId': ?taskId,
+        'repoFilter': ?repoFilter,
+        'channelId': ?channelId,
+        'teamId': ?teamId,
+        'agentId': ?agentId,
+      };
+
+  static NavState? fromJson(Map<String, Object?> j) {
+    final page = AppPage.values.asNameMap()[j['page']];
+    if (page == null) return null;
+    return NavState(
+      page: page,
+      projectId: j['projectId'] as String?,
+      view: ProjectView.values.asNameMap()[j['view']] ?? ProjectView.board,
+      taskId: j['taskId'] as String?,
+      repoFilter: j['repoFilter'] as String?,
+      channelId: j['channelId'] as String?,
+      teamId: j['teamId'] as String?,
+      agentId: j['agentId'] as String?,
+    );
+  }
 }
 
 class NavNotifier extends Notifier<NavState> {
@@ -77,6 +105,19 @@ class NavNotifier extends Notifier<NavState> {
   bool get canGoBack => _back.isNotEmpty;
   bool get canGoForward => _forward.isNotEmpty;
 
+  /// Where Back goes, and where Forward goes.
+  NavState? get previous => _back.lastOrNull;
+  NavState? get next => _forward.lastOrNull;
+
+  /// Puts back the place saved at the last quit, unless you already moved.
+  void restore(NavState saved) {
+    if (_back.isNotEmpty || !_same(state, initial)) return;
+    state = saved;
+  }
+
+  /// Any place, e.g. a breadcrumb's.
+  void go(NavState to) => _go(to);
+
   void back() {
     if (_back.isEmpty) return;
     _forward.add(state);
@@ -98,6 +139,8 @@ class NavNotifier extends Notifier<NavState> {
   /// A team's page, with [agentId] (a member) in its inspector.
   void team(String id, {String? agentId}) => _go(NavState(
         page: AppPage.team, projectId: state.projectId, view: state.view, channelId: state.channelId, teamId: id, agentId: agentId));
+  /// One agent's page: what it is doing, its queue and history.
+  void agent(String id) => _go(NavState(page: AppPage.agent, projectId: state.projectId, view: state.view, channelId: state.channelId, agentId: id));
   void openTask(String id) => _go(state.copyWith(taskId: id));
   void closeTask() => _go(state.copyWith(clearTask: true));
   void repoFilter(String? repoId) => _go(repoId == null ? state.copyWith(clearRepo: true) : state.copyWith(repoFilter: repoId, view: ProjectView.board, page: AppPage.project));

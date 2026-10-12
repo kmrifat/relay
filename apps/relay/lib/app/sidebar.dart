@@ -139,7 +139,8 @@ class Sidebar extends ConsumerWidget {
                 leading: AgentTile(agent: a, size: 14),
                 label: a.name,
                 trailing: _agentTrailing(context, data, a),
-                onTap: () => n.page(AppPage.agents),
+                selected: !onTask && nav.page == AppPage.agent && nav.agentId == a.id,
+                onTap: () => n.agent(a.id),
               ),
             if (people.isNotEmpty) ...[
               const SizedBox(height: 14),

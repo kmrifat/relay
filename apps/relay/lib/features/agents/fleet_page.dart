@@ -5,6 +5,7 @@ import 'package:relay_core/relay_core.dart';
 import 'package:relay_protocol/relay_protocol.dart';
 
 import '../../app/theme.dart';
+import '../../data/nav.dart';
 import '../../data/relay_data.dart';
 import '../../ui/widgets.dart';
 import 'model_picker.dart';
@@ -76,7 +77,7 @@ class _FleetPageState extends ConsumerState<FleetPage> {
               LayoutBuilder(builder: (context, box) {
                 final cols = box.maxWidth > 760 ? 2 : 1;
                 final w = (box.maxWidth - (cols - 1) * 14) / cols;
-                return Wrap(spacing: 14, runSpacing: 14, children: [for (final a in installed) SizedBox(width: w, child: _AgentCard(agent: a))]);
+                return Wrap(spacing: 14, runSpacing: 14, children: [for (final a in installed) SizedBox(width: w, child: AgentCard(agent: a))]);
               }),
               if (missing.isNotEmpty) ...[
                 const SizedBox(height: 20),
@@ -144,9 +145,12 @@ class _FleetPageState extends ConsumerState<FleetPage> {
   );
 }
 
-class _AgentCard extends ConsumerWidget {
-  const _AgentCard({required this.agent});
+/// One CLI's card: usage, defaults, slots and caps. On the fleet page its
+/// name opens the agent's page; [onPage] is set on that page itself.
+class AgentCard extends ConsumerWidget {
+  const AgentCard({super.key, required this.agent, this.onPage = false});
   final AgentProfile agent;
+  final bool onPage;
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.c;
@@ -159,6 +163,8 @@ class _AgentCard extends ConsumerWidget {
     final cost = (today['costUsd'] as num?)?.toDouble() ?? 0;
     final client = ref.read(clientProvider);
     Future<void> update(Map<String, Object?> f) => client.call(M.agentsUpdate, {'id': a.id, 'fields': f});
+    final nav = ref.read(navProvider.notifier);
+    void open() => nav.agent(a.id);
 
     return Box(
       border: limited ? c.warning : null,
@@ -169,7 +175,17 @@ class _AgentCard extends ConsumerWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(a.name, style: context.t(14, w: FontWeight.w700)),
+              if (onPage)
+                Text(a.name, style: context.t(14, w: FontWeight.w700))
+              else
+                Pressable(
+                  onTap: open,
+                  builder: (context, hover, focus) => Row(mainAxisSize: MainAxisSize.min, children: [
+                    Text(a.name, style: context.t(14, w: FontWeight.w700, color: hover ? c.accentIcon : null)),
+                    const SizedBox(width: 4),
+                    Icon(LucideIcons.chevronRight, size: 13, color: hover ? c.accentIcon : c.text3),
+                  ]),
+                ),
               Text('${Desk.tilde(a.binaryPath ?? '')}${a.version != null ? ' · ${a.version!.split(' ').first}' : ''}',
                   maxLines: 1, overflow: TextOverflow.ellipsis, style: context.t(11, family: mono, color: c.text2)),
             ]),
@@ -177,7 +193,12 @@ class _AgentCard extends ConsumerWidget {
           if (limited)
             Pill('Limit reached', fg: c.warning, bg: c.warningWash, icon: LucideIcons.clock, radius: 10)
           else if (runs.isNotEmpty)
-            Pill('Running ${runs.length}', fg: c.success, bg: c.successWash, radius: 10)
+            onPage
+                ? Pill('Running ${runs.length}', fg: c.success, bg: c.successWash, radius: 10)
+                : Tooltip(
+                    message: 'See what ${a.name} is working on',
+                    child: Pressable(onTap: open, builder: (context, hover, focus) => Pill('Running ${runs.length}', fg: c.success, bg: c.successWash, radius: 10)),
+                  )
           else
             Pill(a.enabled ? 'Idle' : 'Off', radius: 10),
         ]),
@@ -222,7 +243,7 @@ class _AgentCard extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.only(right: 5),
               child: i < runs.length
-                  ? Pill(data.get<Task>(Kind.task, runs[i].taskId) == null ? 'busy' : data.keyOf(data.get<Task>(Kind.task, runs[i].taskId)!), mono: true, fg: Colors.white, bg: c.accent)
+                  ? _SlotChip(run: runs[i])
                   : Container(padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1), decoration: BoxDecoration(border: Border.all(color: c.fieldStroke), borderRadius: BorderRadius.circular(4)), child: Text('free', style: context.t(10, color: c.text3))),
             ),
           const Spacer(),
@@ -251,6 +272,24 @@ class _AgentCard extends ConsumerWidget {
         ]),
       ]),
     );
+  }
+}
+
+/// A busy slot: the task's key; click to open the task.
+class _SlotChip extends ConsumerWidget {
+  const _SlotChip({required this.run});
+  final Run run;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.c;
+    final task = ref.watch(dataProvider).get<Task>(Kind.task, run.taskId);
+    final label = task == null ? 'busy' : ref.read(dataProvider).keyOf(task);
+    final waiting = run.status == RunStatus.waiting;
+    final chip = Pressable(
+      onTap: task == null ? null : () => ref.read(navProvider.notifier).openTask(task.id),
+      builder: (context, hover, focus) => Pill(label, mono: true, fg: Colors.white, bg: waiting ? c.warning : (hover ? Color.lerp(c.accent, Colors.white, 0.15) : c.accent)),
+    );
+    return task == null ? chip : Tooltip(message: '${task.title}${waiting ? ' · waiting for you' : ''}', child: chip);
   }
 }
 
