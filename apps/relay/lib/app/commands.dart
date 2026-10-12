@@ -55,6 +55,7 @@ abstract final class Cmd {
   static const forward = 'forward';
   static const settings = 'settings';
   static const newTask = 'newTask';
+  static const newProject = 'newProject';
   static const toggleTerminal = 'toggleTerminal';
   static const leaveFocus = 'leaveFocus';
   static const switchPane = 'switchPane';
@@ -81,6 +82,7 @@ List<Command> get commands => [
   for (var i = 0; i < viewNames.length; i++)
     Command(Cmd.view(i), viewNames[i], CommandGroup.product, [_alt(_digits[i])], whenTyping: false),
   Command(Cmd.newTask, 'New task', CommandGroup.product, [_mod(LogicalKeyboardKey.keyN)]),
+  Command(Cmd.newProject, 'New project…', CommandGroup.go, [_mod(LogicalKeyboardKey.keyN, shift: true)]),
   Command(Cmd.toggleTerminal, 'Show or hide the terminal', CommandGroup.product, [const SingleActivator(LogicalKeyboardKey.backquote, control: true)]),
   Command(Cmd.leaveFocus, 'Leave the terminal or editor', CommandGroup.product,
       [Desk.isMac ? const SingleActivator(LogicalKeyboardKey.escape, meta: true) : const SingleActivator(LogicalKeyboardKey.f6)]),

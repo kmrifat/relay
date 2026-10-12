@@ -47,7 +47,7 @@ class RelayMenus extends ConsumerWidget {
           ])),
           PlatformMenuItemGroup(members: provided([PlatformProvidedMenuItemType.quit])),
         ]),
-        PlatformMenu(label: 'File', menus: [item(Cmd.newTask)]),
+        PlatformMenu(label: 'File', menus: [item(Cmd.newTask), item(Cmd.newProject)]),
         PlatformMenu(label: 'Go', menus: [
           PlatformMenuItemGroup(members: [item(Cmd.home), item(Cmd.needsYou), item(Cmd.activity), item(Cmd.agents)]),
           if (projects.isNotEmpty)
