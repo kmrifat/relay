@@ -85,6 +85,8 @@ To turn them on:
 
 `macos_appcast.sh` writes `appcast.xml` with the DMG's EdDSA signature. Sparkle runs only when the person chooses **Check for Updates…** (Settings → This Mac). It checks the signature and the Developer ID team before it installs anything.
 
+An update replaces the app but not the relayd that is already running. The relaunched app replaces an older relayd with its bundled one. It waits for agent runs to finish first, and goes through the LaunchAgent when that is what started relayd ([protocol.md, After an update](protocol.md#after-an-update)).
+
 ## 4. iPhone: TestFlight (M9-04)
 
 | Secret | What |

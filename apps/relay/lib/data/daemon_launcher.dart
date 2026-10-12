@@ -13,7 +13,8 @@ bool get isMobile => Platform.isIOS || Platform.environment['RELAY_MOBILE'] == '
 ///
 /// In a release build relayd lives at `Relay.app/Contents/Helpers/relay`
 /// (embedded by tool/build_relay_helper.sh). It is started detached so it
-/// keeps running, with its agents, after the window closes.
+/// keeps running, with its agents, after the window closes; an older one
+/// left running by the previous version is replaced (daemon_upgrade.dart).
 class DaemonLauncher {
   DaemonLauncher({RelayPaths? paths}) : paths = paths ?? RelayPaths.resolve();
 
@@ -56,6 +57,12 @@ class DaemonLauncher {
     try {
       return await RelayClient.connect(paths);
     } catch (_) {}
+    await startDetached(onStatus: onStatus);
+    return waitForDaemon();
+  }
+
+  /// Starts the bundled relayd, detached so it outlives this window.
+  Future<void> startDetached({void Function(String)? onStatus}) async {
     // Inside an AppImage, start relayd through the AppImage so it keeps its
     // own mount after this window closes (tool/release/linux_appimage.sh).
     final appImage = Platform.environment['APPIMAGE'];
@@ -63,7 +70,7 @@ class DaemonLauncher {
       onStatus?.call('Starting relayd…');
       Directory(paths.home).createSync(recursive: true);
       await Process.start(appImage, ['--relayd'], mode: ProcessStartMode.detached);
-      return _waitForDaemon();
+      return;
     }
     final bin = relayBinary;
     if (bin == null) {
@@ -78,10 +85,9 @@ class DaemonLauncher {
       mode: ProcessStartMode.detached,
       environment: {'RELAY_PTY': p.join(p.dirname(bin), 'relay-pty$_exe')},
     );
-    return _waitForDaemon();
   }
 
-  Future<RelayClient> _waitForDaemon() async {
+  Future<RelayClient> waitForDaemon() async {
     final deadline = DateTime.now().add(const Duration(seconds: 20));
     Object? last;
     while (DateTime.now().isBefore(deadline)) {

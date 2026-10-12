@@ -26,6 +26,7 @@ import '../ui/widgets.dart';
 import '../ui/platform.dart';
 import 'sidebar.dart';
 import 'theme.dart';
+import 'upgrade_banner.dart';
 
 class Shell extends ConsumerStatefulWidget {
   const Shell({super.key});
@@ -205,10 +206,15 @@ class _ShellState extends ConsumerState<Shell> {
       child: Focus(
         autofocus: true,
         child: Scaffold(
-          body: _onboarding ? OnboardingPage(onDone: () => setState(() => _onboarding = false)) : Row(children: [
-            const SizedBox(width: 220, child: Sidebar()),
-            Container(width: 1, color: context.c.separator),
-            Expanded(child: content),
+          body: _onboarding ? OnboardingPage(onDone: () => setState(() => _onboarding = false)) : Column(children: [
+            const UpgradeBanner(),
+            Expanded(
+              child: Row(children: [
+                const SizedBox(width: 220, child: Sidebar()),
+                Container(width: 1, color: context.c.separator),
+                Expanded(child: content),
+              ]),
+            ),
           ]),
         ),
       ),

@@ -13,7 +13,21 @@ The UI, the `relay` CLI and `relay mcp` talk to relayd over JSON-RPC 2.0. Each m
    - Windows: `127.0.0.1:<port>`.
 3. Call `hello {token, protocol, client}`. Every other method is refused until `hello` succeeds. The answer is `{version, protocol, deviceId, pid, userName}`.
 
-Errors use the JSON-RPC codes plus `-32001` (unauthorized: bad token, or a path outside repos and workspaces) and `-32004` (not found).
+Errors use the JSON-RPC codes plus `-32001` (unauthorized: bad token, or a path outside repos and workspaces), `-32004` (not found) and `-32009` (busy: `shutdown` while agent runs are active).
+
+## After an update
+
+relayd outlives the app, so after an update the previous version's relayd is still the one answering. When the app connects, it compares `hello`'s `version` with its own. If relayd is older and the bundled helper (`relay version`) is newer than relayd, the app replaces relayd. A newer relayd, or one whose version doesn't parse, is left alone. Code: `apps/relay/lib/data/daemon_upgrade.dart`.
+
+1. If agent runs are active (`runs.list {active: true}` with `live`), the app waits for them to finish. A banner offers **Restart now**, which asks first and then stops the runs. Their tasks go back to the queue.
+2. The app calls `shutdown`. A relayd from before 0.1.2 has no `shutdown`, so it gets SIGTERM, which stops it the same way.
+3. The app waits until nothing answers on the socket or port as that pid and the process has exited.
+4. The app starts the bundled relayd through whatever started the old one, so there is only one relayd and it belongs to the service manager:
+   - macOS LaunchAgent (`launchctl list com.binarycastle.relay.daemon` shows relayd's pid): `launchctl kickstart`. relayd exited 0, so `KeepAlive` didn't restart it.
+   - Linux systemd user unit (`MainPID` is relayd's pid): the unit is rewritten for this version's binary, then `systemctl --user start relayd.service`.
+   - Otherwise, including the Windows Run entry, which only acts at login: started detached, as on a first start.
+
+The app tries this once per launch, so a relayd that comes back old is not restarted again.
 
 ## Records
 
@@ -24,6 +38,7 @@ Records are JSON maps with an `id`. Each kind has its fields in `relay_core/lib/
 | Method | Params | Returns |
 |---|---|---|
 | `status` | — | version, pid, uptime, active runs, RSS, home |
+| `shutdown` | `{force?}` | `{pid, version, stoppedRuns}`, then relayd stops: active runs are marked stopped and their tasks are queued again, the socket and `daemon.json` are removed, and the process exits 0. Refused with `-32009` (`data.activeRuns`) while runs are active, unless `force`. Local clients only: a paired phone can't call it |
 | `projects.list / create / update` | `{name, key}` / `{id, fields}` | project(s) |
 | `repos.list` | `{projectId?}` | repos with `localPath`, `cloned` |
 | `repos.inspect` | `{path}` | git facts, stack, test command, contracts |
